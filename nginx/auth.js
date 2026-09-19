@@ -91,30 +91,63 @@ function authenticate(r) {
 var PAK_ROOT = '/paks';
 var PAK_EXT_RE = /\.(pak|pk3)$/i;
 
-// Lists the .pak/.pk3 files directly inside /paks/<gamedir>/, mapping each
-// to a {"<gamedir>/<file>": "paks/<gamedir>/<file>"} entry for
-// Module.files - see site/app.js. Only top-level files are considered;
+// Case-insensitively finds `canon` among PAK_ROOT's own top-level
+// subfolders, returning its real on-disk name (or null if there's no
+// match). Quake installs are conventionally cased however their original
+// platform felt like (GOG/Steam Windows installs ship "Id1", not "id1",
+// for instance), but the browser client's sandboxed virtual filesystem has
+// no OS-level case-insensitive fallback to lean on the way a native build
+// does, so this - and listGameFiles()'s own filename matching below - is
+// what stands in for that. Mirrors fteqw-server/docker-entrypoint.sh's own
+// link_gamedir(), which does the same match for the same reason.
+function findGamedirRealName(canon) {
+    var fs = require('fs');
+    var entries;
+    try {
+        entries = fs.readdirSync(PAK_ROOT);
+    } catch (e) {
+        return null;
+    }
+    for (var i = 0; i < entries.length; i++) {
+        if (entries[i].toLowerCase() === canon) {
+            return entries[i];
+        }
+    }
+    return null;
+}
+
+// Lists the .pak/.pk3 files directly inside PAK_ROOT/<realGamedirName>/,
+// mapping each to a Module.files entry (see site/app.js) keyed by fteqw's
+// own canonical lowercase virtual path ("<canon>/<lowercased filename>"),
+// valued with the real on-disk URL nginx can actually serve ("paks/<real
+// gamedir name>/<real filename>") - the two are kept deliberately distinct
+// so the virtual path always matches what fteqw itself expects/constructs
+// internally (see findGamedirRealName's comment) regardless of how the
+// files are actually cased on disk. Only top-level files are considered;
 // loose (unpacked) assets in a gamedir aren't served to the browser
 // client, since retail/mod content is expected to ship as
 // pak0.pak/pak1.pak/etc, matching what fteqw-server itself needs anyway
 // (see its docker-entrypoint.sh). A missing gamedir (e.g. a GAMEDIRS entry
-// pointing at a folder that isn't actually in PAK_DIR) just yields no files
+// with no matching folder under PAK_DIR, any case) just yields no files
 // rather than an error - config() still returns successfully with whatever
 // it did find.
-function listGameFiles(gamedir) {
+function listGameFiles(canon) {
     var fs = require('fs');
-    var dir = PAK_ROOT + '/' + gamedir;
+    var realName = findGamedirRealName(canon);
     var out = {};
+    if (!realName) {
+        return out;
+    }
     var entries;
     try {
-        entries = fs.readdirSync(dir);
+        entries = fs.readdirSync(PAK_ROOT + '/' + realName);
     } catch (e) {
         return out;
     }
     for (var i = 0; i < entries.length; i++) {
         var name = entries[i];
         if (!PAK_EXT_RE.test(name)) continue;
-        out[gamedir + '/' + name] = 'paks/' + gamedir + '/' + name;
+        out[canon + '/' + name.toLowerCase()] = 'paks/' + realName + '/' + name;
     }
     return out;
 }
@@ -177,7 +210,7 @@ function config(r) {
     // per-request (cheap - a couple of readdirSync calls on a handful of
     // gamedirs) rather than once at container start, so a pak dropped into
     // a running server's volume shows up without a restart.
-    var gamedirs = (process.env.GAMEDIRS || '').split(/\s+/).filter(Boolean);
+    var gamedirs = (process.env.GAMEDIRS || '').toLowerCase().split(/\s+/).filter(Boolean);
     var gameFiles = listGameFiles('id1');
     for (var i = 0; i < gamedirs.length; i++) {
         var extra = listGameFiles(gamedirs[i]);

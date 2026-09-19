@@ -9,22 +9,47 @@ set -eu
 BASEDIR=/fte
 DATA_DIR=/fte-data
 
-# Merge every gamedir subfolder found in the mounted volume (id1/,
-# hipnotic/, rogue/, a mod's own folder, ...) into $BASEDIR as a symlink.
-# A pre-existing real directory at the same name (i.e. only qw/, baked into
-# the image) is removed first so your own copy - if PAK_DIR happens to
-# provide one, e.g. from a full retail install - takes priority over the
-# built-in one instead of ln silently nesting inside it.
-if [ -d "$DATA_DIR" ]; then
+# Quake installs are conventionally cased however their original platform
+# felt like (GOG/Steam Windows installs ship "Id1", not "id1", for
+# instance), but fteqw's own default basegame lookup - and, critically, the
+# browser client's sandboxed virtual filesystem, which has no OS-level
+# case-insensitive fallback to lean on the way native builds do - expect
+# the lowercase "id1"/"pak0.pak" convention exactly. So gamedirs here are
+# matched against PAK_DIR case-*insensitively*, but always symlinked in
+# under their canonical lowercase name, regardless of the real folder's
+# actual casing - keeping the server side consistent with whatever
+# nginx/auth.js resolves for the web client (see its own matching
+# comment).
+#
+# link_gamedir CANONICAL: finds a case-insensitive match for CANONICAL
+# among $DATA_DIR's top-level subfolders and symlinks it in as
+# $BASEDIR/CANONICAL (lowercase). Returns failure if no match was found.
+link_gamedir() {
+    canon="$1"
+    [ -d "$DATA_DIR" ] || return 1
     for d in "$DATA_DIR"/*/; do
         [ -d "$d" ] || continue
         name=$(basename "$d")
-        target="$BASEDIR/$name"
-        if [ -e "$target" ] && [ ! -L "$target" ]; then
-            rm -rf "$target"
+        lc_name=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')
+        if [ "$lc_name" = "$canon" ]; then
+            target="$BASEDIR/$canon"
+            # A pre-existing real directory at the same name (i.e. only
+            # qw/, baked into the image) is removed first so your own
+            # copy - if PAK_DIR happens to provide one, e.g. from a full
+            # retail install - takes priority over the built-in one
+            # instead of ln silently nesting inside it.
+            if [ -e "$target" ] && [ ! -L "$target" ]; then
+                rm -rf "$target"
+            fi
+            ln -sfn "$d" "$target"
+            return 0
         fi
-        ln -sfn "$d" "$target"
     done
+    return 1
+}
+
+if ! link_gamedir id1; then
+    echo "WARNING: no id1/ (any case) folder found under PAK_DIR - the server has no base game data and will fail to load a map. See the README's 'Getting paks' section." >&2
 fi
 
 SV_PORT="${SV_PORT:-27500}"
@@ -79,9 +104,13 @@ PASSWORD="${PASSWORD:-}"
 # also works, with no config here and no pak/nginx involvement at all -
 # GAMEDIRS is for when you specifically want a map pack's own gamedir
 # (e.g. it ships alongside its own textures/sounds as a pak).
-GAMEDIRS="${GAMEDIRS:-}"
 set -- -game qw
-for gd in $GAMEDIRS; do
+for gd in ${GAMEDIRS:-}; do
+    gd=$(printf '%s' "$gd" | tr '[:upper:]' '[:lower:]')
+    if ! link_gamedir "$gd"; then
+        echo "WARNING: GAMEDIRS entry '$gd' has no matching folder (any case) under PAK_DIR - skipping it." >&2
+        continue
+    fi
     set -- "$@" -game "$gd"
 done
 

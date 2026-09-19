@@ -59,9 +59,16 @@ CLOUDYQUAKE_WS_HOST=$(printf '%s' "$CLOUDYQUAKE_WS_URL" | sed -E 's#^[a-zA-Z][a-
 # running - not "qw" itself.
 CLOUDYQUAKE_GAME_ARGS=""
 for gd in ${GAMEDIRS:-}; do
+    gd=$(printf '%s' "$gd" | tr '[:upper:]' '[:lower:]')
     CLOUDYQUAKE_GAME_ARGS="${CLOUDYQUAKE_GAME_ARGS}-game ${gd} "
 done
-CLOUDYQUAKE_NATIVE_CMD="fteqw ${CLOUDYQUAKE_GAME_ARGS}+set password \"<your password>\" +connect ${CLOUDYQUAKE_WS_HOST}:${SV_PORT:-27500}"
+# The real PASSWORD, not a placeholder: this whole field only reaches
+# someone who already authenticated with that exact password (config.json
+# is behind the same Basic Auth gate as everything else - see
+# nginx/auth.js), so there's nothing left to protect by hiding it here,
+# and a placeholder just means extra manual editing for every player
+# copy-pasting this to set up a native client.
+CLOUDYQUAKE_NATIVE_CMD="fteqw ${CLOUDYQUAKE_GAME_ARGS}+set password \"${PASSWORD:-}\" +connect ${CLOUDYQUAKE_WS_HOST}:${SV_PORT:-27500}"
 export CLOUDYQUAKE_NATIVE_CMD_JSON=$(json_escape "$CLOUDYQUAKE_NATIVE_CMD")
 
 # config.base.json holds everything in config.json except "playerName",

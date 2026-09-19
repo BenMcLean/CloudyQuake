@@ -119,6 +119,11 @@ paks/
   mymappack/pak0.pak  <- your own map pack, mod, or anything else
 ```
 
+Gamedir folder names and `*.pak`/`*.pk3` filenames inside `PAK_DIR` are
+matched **case-insensitively** - a Windows/GOG/Steam install's
+`Id1/PAK0.PAK` works exactly the same as `id1/pak0.pak`, so you can point
+`PAK_DIR` straight at a copied install folder without renaming anything.
+
 `id1/` is always loaded. `GAMEDIRS` stacks any number of further gamedirs
 on top, in order (e.g. `GAMEDIRS="hipnotic mymappack"` for Scourge of
 Armagon plus a custom map pack over it) - a mission pack, a total
