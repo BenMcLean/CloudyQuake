@@ -97,15 +97,17 @@ fetch("config.json", { cache: "no-store" })
     })
     .then((config) => {
         if (!config.wsUrl) throw new Error("config.json is missing wsUrl");
-        if (!config.pak0Url) throw new Error("config.json is missing pak0Url");
+        if (!config.gameFiles || !Object.keys(config.gameFiles).length) {
+            throw new Error("config.json has no gameFiles - is a pak0.pak actually in the id1/ folder of your PAK_DIR volume?");
+        }
 
         // String values in Module.files are treated as URLs and downloaded
         // before any C code runs - see fteqw's engine/web/fteshell.html.
-        // The virtual path (left side) has to be fteqw's own expected
-        // location for these files under its default "id1" gamedir.
-        Module.files["id1/pak0.pak"] = config.pak0Url;
-        if (config.pak1Url) {
-            Module.files["id1/pak1.pak"] = config.pak1Url;
+        // config.gameFiles's keys are already fteqw's own expected virtual
+        // paths (e.g. "id1/pak0.pak", "hipnotic/pak0.pak") - see
+        // nginx/auth.js's listGameFiles().
+        for (const [virtualPath, url] of Object.entries(config.gameFiles)) {
+            Module.files[virtualPath] = url;
         }
 
         // config.playerName/config.password are only present once the
@@ -114,8 +116,14 @@ fetch("config.json", { cache: "no-store" })
         // nothing to set, so fteqw falls back to its own defaults.
         const nameArgs = config.playerName ? ["+name", config.playerName] : [];
         const passArgs = config.password ? ["+password", config.password] : [];
+        // config.gamedir mirrors fteqw-server's own extra "-game GAMEDIR"
+        // (see its docker-entrypoint.sh) - a mission pack/mod's
+        // client-visible assets need this to actually get searched, same
+        // as the server needs it for its own gamecode/assets.
+        const gameArgs = config.gamedir ? ["-game", config.gamedir] : [];
 
-        Module.arguments = ["+connect", config.wsUrl]
+        Module.arguments = gameArgs
+            .concat(["+connect", config.wsUrl])
             .concat(nameArgs)
             .concat(passArgs)
             .concat(Array.isArray(config.extraArgs) ? config.extraArgs : []);

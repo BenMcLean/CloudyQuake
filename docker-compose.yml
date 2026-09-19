@@ -23,8 +23,11 @@ services:
       # instead). Combined with a blank PASSWORD above, this skips the
       # login prompt entirely - see nginx/auth.js.
       USE_LOGIN_NAME: ${USE_LOGIN_NAME:-true}
-      PAK0_PATH: ${PAK0_PATH:-pak0.pak}
-      PAK1_PATH: ${PAK1_PATH:-pak1.pak}
+      # Which extra gamedir (mission pack or mod) to serve to browsers,
+      # alongside the always-present id1/ - see PAK_DIR below and GAMEDIR
+      # on fteqw-server. Must match between the two services, so it's set
+      # once here from the same .env var. Blank means base game only.
+      GAMEDIR: ${GAMEDIR:-}
       EXTRA_ARGS: ${EXTRA_ARGS:-}
       # Only used here to build config.json's human-facing nativeClientCmd -
       # nginx never talks raw UDP/WS to fteqw-server itself.
@@ -36,6 +39,10 @@ services:
     # linuxserver.io images.
     user: "${PUID:-101}:${PGID:-101}"
     volumes:
+      # PAK_DIR's own subfolders (id1/, hipnotic/, rogue/, a mod's own
+      # folder, ...) become the gamedirs nginx can serve from - see
+      # nginx/auth.js's discoverPakFiles(). Same volume, same layout, as
+      # fteqw-server's mount below.
       - ${PAK_DIR:-./paks}:/paks:ro
     restart: unless-stopped
     logging: *default-logging
@@ -61,11 +68,27 @@ services:
       # actually gates joining the game itself (HTTP Basic Auth can't reach
       # the WebSocket handshake - see nginx/auth.js's file-level comment).
       PASSWORD: ${PASSWORD:-}
+      # Extra gamedir (mission pack or mod) to stack on top of the base
+      # game via an additional "-game" - see PAK_DIR below and
+      # docker-entrypoint.sh. Blank means base game (id1 + qw) only.
+      GAMEDIR: ${GAMEDIR:-}
     volumes:
       # The dedicated server is authoritative - unlike CloudyDoom's
       # chocolate-server, which never touches the WAD at all, fteqw-server
       # actually loads maps/models/sounds from these pak files to run the
       # game, so this volume is mounted here too, not just into nginx.
-      - ${PAK_DIR:-./paks}:/fte/id1:ro
+      #
+      # PAK_DIR's own layout mirrors Quake's usual install layout - one
+      # subfolder per gamedir (id1/, hipnotic/, rogue/, a mod's own name),
+      # e.g. PAK_DIR/id1/pak0.pak, PAK_DIR/hipnotic/pak0.pak. Mounted at
+      # /fte-data (not directly at /fte/id1) because fteqw-server also
+      # ships its own baked-in qw/ (compiled gamecode, see Dockerfile) that
+      # a wholesale bind-mount over /fte would hide entirely - the
+      # entrypoint instead symlinks each subfolder found here into /fte/,
+      # which merges the two without either clobbering the other (a
+      # PAK_DIR/qw/ folder of your own, e.g. from a full retail install,
+      # still takes priority over the baked-in one - see
+      # docker-entrypoint.sh).
+      - ${PAK_DIR:-./paks}:/fte-data:ro
     restart: unless-stopped
     logging: *default-logging

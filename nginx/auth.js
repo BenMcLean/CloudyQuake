@@ -88,6 +88,37 @@ function authenticate(r) {
     return { playerName: playerName };
 }
 
+var PAK_ROOT = '/paks';
+var PAK_EXT_RE = /\.(pak|pk3)$/i;
+
+// Lists the .pak/.pk3 files directly inside /paks/<gamedir>/, mapping each
+// to a {"<gamedir>/<file>": "paks/<gamedir>/<file>"} entry for
+// Module.files - see site/app.js. Only top-level files are considered;
+// loose (unpacked) assets in a gamedir aren't served to the browser
+// client, since retail/mod content is expected to ship as
+// pak0.pak/pak1.pak/etc, matching what fteqw-server itself needs anyway
+// (see its docker-entrypoint.sh). A missing gamedir (e.g. GAMEDIR unset,
+// or pointing at a folder that isn't actually in PAK_DIR) just yields no
+// files rather than an error - config() still returns successfully with
+// whatever it did find.
+function listGameFiles(gamedir) {
+    var fs = require('fs');
+    var dir = PAK_ROOT + '/' + gamedir;
+    var out = {};
+    var entries;
+    try {
+        entries = fs.readdirSync(dir);
+    } catch (e) {
+        return out;
+    }
+    for (var i = 0; i < entries.length; i++) {
+        var name = entries[i];
+        if (!PAK_EXT_RE.test(name)) continue;
+        out[gamedir + '/' + name] = 'paks/' + gamedir + '/' + name;
+    }
+    return out;
+}
+
 function unauthorized(r) {
     r.headersOut['WWW-Authenticate'] = 'Basic realm="cloudyquake"';
     r.return(401, 'Authorization required\n');
@@ -138,6 +169,24 @@ function config(r) {
     // comment above for why this can't just ride along on the WebSocket
     // handshake itself.
     base.password = process.env.PASSWORD || '';
+
+    // id1/ is always served; GAMEDIR (same var fteqw-server reads, see its
+    // docker-entrypoint.sh) optionally adds a mission pack or mod's own
+    // pak files on top, matching the extra "-game" it stacks server-side.
+    // Discovered fresh per-request (cheap - a couple of readdirSync calls
+    // on a handful of gamedirs) rather than once at container start, so a
+    // pak dropped into a running server's volume shows up without a
+    // restart.
+    var gamedir = process.env.GAMEDIR || '';
+    var gameFiles = listGameFiles('id1');
+    if (gamedir) {
+        var extra = listGameFiles(gamedir);
+        for (var key in extra) {
+            gameFiles[key] = extra[key];
+        }
+    }
+    base.gameFiles = gameFiles;
+    base.gamedir = gamedir || null;
 
     r.headersOut['Content-Type'] = 'application/json';
     r.headersOut['Cache-Control'] = 'no-store';

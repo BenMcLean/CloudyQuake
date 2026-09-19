@@ -67,14 +67,14 @@ FROM ubuntu:24.04
 COPY --from=builder /src/engine/release/fteqw-server-bin /usr/local/bin/fteqw-server
 RUN chmod +x /usr/local/bin/fteqw-server
 
-# Standard QuakeWorld directory layout: id1/ holds the shared NetQuake
-# assets (pak0.pak/pak1.pak - your own retail copy, mounted read-only as a
-# volume at container start, see PAK_DIR in docker-compose.yml - never
-# baked into this image), qw/ holds QuakeWorld-specific gamecode.
-# qwprogs.dat is baked in at build time since it's built from fteqw's own
-# openly-licensed quakec/basemod source above, not copyrighted retail
-# content.
-RUN mkdir -p /fte/id1 /fte/qw
+# qw/ holds QuakeWorld-specific gamecode, baked in at build time since it's
+# built from fteqw's own openly-licensed quakec/basemod source above (not
+# copyrighted game data). id1/ and any other gamedir (hipnotic/, rogue/, a
+# mod's own folder) are never baked in here - docker-entrypoint.sh symlinks
+# them in from the PAK_DIR volume at container start (see its comment, and
+# /fte-data in docker-compose.yml), overriding this qw/ too if your own
+# volume happens to provide one (e.g. from a full retail install).
+RUN mkdir -p /fte/qw
 COPY --from=builder /src/quakec/basemod/qwprogs.dat /fte/qw/qwprogs.dat
 
 COPY docker-entrypoint.sh /docker-entrypoint.sh

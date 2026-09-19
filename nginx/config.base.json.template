@@ -1,7 +1,5 @@
 {
   "wsUrl": "${CLOUDYQUAKE_WS_URL}",
-  "pak0Url": "${CLOUDYQUAKE_PAK0_URL}",
-  "pak1Url": "${CLOUDYQUAKE_PAK1_URL}",
   "extraArgs": ${CLOUDYQUAKE_EXTRA_ARGS_JSON},
   "nativeClientCmd": "${CLOUDYQUAKE_NATIVE_CMD_JSON}"
 }

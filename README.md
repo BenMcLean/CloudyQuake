@@ -54,7 +54,7 @@ Two services, three published ports:
 
 | Service | What it is | Port |
 |---|---|---|
-| `nginx` | Serves the web client (fteqw's own Emscripten/WebGL port, built from [`fte-team/fteqw`](https://github.com/fte-team/fteqw), fetched at build time - see `FTEQW_REF`) behind HTTP Basic Auth. Also serves `pak0.pak`/`pak1.pak`, so the auth gate covers your pak data too. | `WEB_HTTP_PORT` (default `8080`, tcp) |
+| `nginx` | Serves the web client (fteqw's own Emscripten/WebGL port, built from [`fte-team/fteqw`](https://github.com/fte-team/fteqw), fetched at build time - see `FTEQW_REF`) behind HTTP Basic Auth. Also serves your pak files, so the auth gate covers those too. | `WEB_HTTP_PORT` (default `8080`, tcp) |
 | `fteqw-server` | A real, unmodified fteqw dedicated server (built from the same pinned `FTEQW_REF`), running standard QuakeWorld gamecode compiled from fteqw's own openly-licensed `quakec/basemod` at build time. Unlike CloudyDoom's `doom-server`, this one *is* authoritative and actually loads your pak data to run the game - see [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers). | `SV_PORT` (default `27500`, **udp**, native clients) and `SV_PORT_TCP` (default `27500`, tcp, WebSocket/browser clients) |
 
 ## Quick start
@@ -64,7 +64,7 @@ git clone <this repo's URL>
 cd cloudyquake
 cp .env.example .env
 $EDITOR .env   # set CLOUDYQUAKE_WS_URL at minimum, and PASSWORD for a real deployment
-mkdir -p paks && cp /path/to/your/pak0.pak /path/to/your/pak1.pak paks/   # see "Getting paks" below
+mkdir -p paks/id1 && cp /path/to/your/pak0.pak /path/to/your/pak1.pak paks/id1/   # see "Getting paks" below
 docker compose up -d --build
 ```
 
@@ -101,15 +101,28 @@ of the file for exact names, then delete whatever you don't need.
 
 ## Getting paks
 
-You need `pak0.pak` (and, for the full game rather than just the shareware
-episode, `pak1.pak`) dropped into `paks/` (or wherever `PAK_DIR` points)
-before the game will actually run. Unlike CloudyDoom's dedicated server,
-**`fteqw-server` does load this data itself** - see
+You need `id1/pak0.pak` (and, for the full game rather than just the
+shareware episode, `id1/pak1.pak`) inside `paks/` (or wherever `PAK_DIR`
+points) before the game will actually run. Unlike CloudyDoom's dedicated
+server, **`fteqw-server` does load this data itself** - see
 [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers) -
 so it needs to be present before the server can start a map.
 
-`PAK_DIR` is just a plain docker volume - what you put in it is entirely up
-to you, same as CloudyDoom's `WAD_DIR`:
+`PAK_DIR` is a plain docker volume laid out the same way a real Quake
+install already is - one subfolder per gamedir:
+
+```
+paks/
+  id1/pak0.pak       <- required, the base game
+  id1/pak1.pak       <- optional, full registered game instead of shareware
+  hipnotic/pak0.pak  <- optional: an official mission pack, or your own mod
+```
+
+`id1/` is always loaded. Pick at most one more folder to load alongside it
+with `GAMEDIR` (e.g. `GAMEDIR=hipnotic`) - a mission pack, a total
+conversion, or a QuakeC mod, anything that follows Quake's own `-game
+<gamedir>` convention. What goes in either folder is entirely up to you,
+same as CloudyDoom's `WAD_DIR`:
 
 - Your own copy of `pak0.pak`/`pak1.pak` (from the original CD, Steam, GOG,
   etc.), copied out of your install's `id1/` folder, for the full game.
@@ -117,15 +130,19 @@ to you, same as CloudyDoom's `WAD_DIR`:
   have or all you want to offer - works fine, just without episodes 2-4 or
   deathmatch levels beyond `dm3` (check what's actually in your copy - the
   exact map/content set has varied across releases).
-- A total conversion or QuakeC mod's own paks, dropped in alongside or
-  instead of `pak0.pak`/`pak1.pak` and referenced via `PAK0_PATH`/
-  `PAK1_PATH` (or `EXTRA_ARGS`/entrypoint changes for anything with a
-  different gamedir layout).
+- The official mission packs (`hipnotic/`, `rogue/`) or a third-party
+  QuakeC mod's own gamedir, via `GAMEDIR`.
 
 Whatever you use, it's your own responsibility to have the rights to serve
 it to whoever you invite - `PASSWORD` and `SV_PUBLIC=0` just keep it off the
 public internet/server browser by default, they're not a substitute for
 that.
+
+Only `*.pak`/`*.pk3` files directly inside a gamedir folder are served to
+the browser client (found dynamically per-request by `nginx/auth.js` - drop
+a new pak in and it's picked up without a restart); loose/unpacked assets
+are ignored web-side, though `fteqw-server` itself will still see and use
+everything in the folder, packed or not.
 
 `PAK_DIR` is mounted **read-only** into both containers - neither can write
 to it. On a real Linux host, `nginx` also needs to actually be able to
@@ -232,8 +249,18 @@ the game itself, and `chocolate-server` (CloudyDoom's dedicated server) is a
 pure netcode sequencer that never even looks at the WAD. QuakeWorld is
 different: it's a genuine client-server model where the server is
 authoritative and actually runs the game simulation, so `fteqw-server` needs
-real access to the map/model/sound data in `pak0.pak`/`pak1.pak` to do that -
-not just `nginx`, which only needs them to hand out to browsers.
+real access to the map/model/sound data in your paks to do that - not just
+`nginx`, which only needs them to hand out to browsers.
+
+On the `fteqw-server` side specifically, `PAK_DIR` isn't bind-mounted
+straight onto its basedir (`/fte`) - that basedir also holds a `qw/` folder
+baked into the image at build time (fteqw's own compiled QuakeWorld
+gamecode, see [Credits / license](#credits--license)), and a bind mount
+would hide that entirely rather than merge with it. Instead it's mounted at
+`/fte-data`, and `docker-entrypoint.sh` symlinks each gamedir subfolder it
+finds there into `/fte/` at container start - so a `paks/qw/` of your own
+(e.g. copied from a full retail install) still takes priority over the
+built-in one, instead of silently failing to appear at all.
 
 ## Credits / license
 
