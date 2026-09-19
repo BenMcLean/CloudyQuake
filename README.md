@@ -16,10 +16,12 @@ Native QuakeWorld clients (fteqw, or any other QW-compatible engine) can also
 connect directly to the same server and play alongside the browser players -
 see [Connecting](#connecting) below.
 
-This is a **private, invite-only** server by design (`SV_PUBLIC=0`,
-password-gated) - it's meant to be run with your own legally-owned retail
-`pak0.pak`/`pak1.pak`, not the shareware-only subset. See
-[Getting paks](#getting-paks).
+Private and unlisted by default (`SV_PUBLIC=0`, password-gated) rather than
+advertised on the public QuakeWorld server browser - see `.env.example` if
+you want to change that. The actual game content (`pak0.pak`, optionally
+`pak1.pak`, or any QuakeC mod's own paks) is a docker volume, same as
+CloudyDoom's WAD directory - see [Getting paks](#getting-paks) for what goes
+in it, it's entirely up to you.
 
 ## How it works
 
@@ -52,7 +54,7 @@ Two services, three published ports:
 
 | Service | What it is | Port |
 |---|---|---|
-| `nginx` | Serves the web client (fteqw's own Emscripten/WebGL port, built from [`fte-team/fteqw`](https://github.com/fte-team/fteqw), fetched at build time - see `FTEQW_REF`) behind HTTP Basic Auth. Also serves `pak0.pak`/`pak1.pak`, so the auth gate covers your retail data too. | `WEB_HTTP_PORT` (default `8080`, tcp) |
+| `nginx` | Serves the web client (fteqw's own Emscripten/WebGL port, built from [`fte-team/fteqw`](https://github.com/fte-team/fteqw), fetched at build time - see `FTEQW_REF`) behind HTTP Basic Auth. Also serves `pak0.pak`/`pak1.pak`, so the auth gate covers your pak data too. | `WEB_HTTP_PORT` (default `8080`, tcp) |
 | `fteqw-server` | A real, unmodified fteqw dedicated server (built from the same pinned `FTEQW_REF`), running standard QuakeWorld gamecode compiled from fteqw's own openly-licensed `quakec/basemod` at build time. Unlike CloudyDoom's `doom-server`, this one *is* authoritative and actually loads your pak data to run the game - see [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers). | `SV_PORT` (default `27500`, **udp**, native clients) and `SV_PORT_TCP` (default `27500`, tcp, WebSocket/browser clients) |
 
 ## Quick start
@@ -106,14 +108,24 @@ before the game will actually run. Unlike CloudyDoom's dedicated server,
 [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers) -
 so it needs to be present before the server can start a map.
 
-This project is built around using your own legally-owned retail copy (from
-the original CD, Steam, GOG, etc.) - copy `pak0.pak` and `pak1.pak` out of
-your install's `id1/` folder. `PASSWORD`/`SV_PUBLIC=0` exist specifically so
-you can do this safely for a private server you control access to; the
-freely-redistributable shareware `pak0.pak` alone also works fine if that's
-all you have, just without episodes 2-4 or deathmatch levels beyond `dm3`
-(check what's actually in your shareware `pak0.pak` - the exact map/content
-set has varied across releases).
+`PAK_DIR` is just a plain docker volume - what you put in it is entirely up
+to you, same as CloudyDoom's `WAD_DIR`:
+
+- Your own copy of `pak0.pak`/`pak1.pak` (from the original CD, Steam, GOG,
+  etc.), copied out of your install's `id1/` folder, for the full game.
+- The freely-redistributable shareware `pak0.pak` alone, if that's all you
+  have or all you want to offer - works fine, just without episodes 2-4 or
+  deathmatch levels beyond `dm3` (check what's actually in your copy - the
+  exact map/content set has varied across releases).
+- A total conversion or QuakeC mod's own paks, dropped in alongside or
+  instead of `pak0.pak`/`pak1.pak` and referenced via `PAK0_PATH`/
+  `PAK1_PATH` (or `EXTRA_ARGS`/entrypoint changes for anything with a
+  different gamedir layout).
+
+Whatever you use, it's your own responsibility to have the rights to serve
+it to whoever you invite - `PASSWORD` and `SV_PUBLIC=0` just keep it off the
+public internet/server browser by default, they're not a substitute for
+that.
 
 `PAK_DIR` is mounted **read-only** into both containers - neither can write
 to it. On a real Linux host, `nginx` also needs to actually be able to
