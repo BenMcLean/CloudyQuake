@@ -67,8 +67,14 @@ done
 # is behind the same Basic Auth gate as everything else - see
 # nginx/auth.js), so there's nothing left to protect by hiding it here,
 # and a placeholder just means extra manual editing for every player
-# copy-pasting this to set up a native client.
-CLOUDYQUAKE_NATIVE_CMD="fteqw ${CLOUDYQUAKE_GAME_ARGS}+set password \"${PASSWORD:-}\" +connect ${CLOUDYQUAKE_WS_HOST}:${SV_PORT:-27500}"
+# copy-pasting this to set up a native client. Omitted entirely (rather
+# than "+set password \"\"") when PASSWORD is blank, matching
+# site/app.js's own conditional +password logic for the browser client.
+CLOUDYQUAKE_PASSWORD_ARG=""
+if [ -n "${PASSWORD:-}" ]; then
+    CLOUDYQUAKE_PASSWORD_ARG="+set password \"${PASSWORD}\" "
+fi
+CLOUDYQUAKE_NATIVE_CMD="fteqw ${CLOUDYQUAKE_GAME_ARGS}${CLOUDYQUAKE_PASSWORD_ARG}+connect ${CLOUDYQUAKE_WS_HOST}:${SV_PORT:-27500}"
 export CLOUDYQUAKE_NATIVE_CMD_JSON=$(json_escape "$CLOUDYQUAKE_NATIVE_CMD")
 
 # config.base.json holds everything in config.json except "playerName",
