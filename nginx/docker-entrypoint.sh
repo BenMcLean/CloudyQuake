@@ -8,10 +8,11 @@ set -eu
 # nginx.conf's "env PASSWORD;"), and embeds it in /config.json itself so it
 # never needs duplicating into config.base.json here.
 
-# Which pak files actually get served/preloaded (id1/*.pak, plus GAMEDIR's
-# own *.pak if set) is discovered fresh per-request by nginx/auth.js's
-# config() - not resolved here, since it depends on what's actually present
-# in the /paks volume mount, which can change without a container restart.
+# Which pak files actually get served/preloaded (id1/*.pak, plus each of
+# GAMEDIRS's own *.pak if set) is discovered fresh per-request by
+# nginx/auth.js's config() - not resolved here, since it depends on what's
+# actually present in the /paks volume mount, which can change without a
+# container restart.
 
 # JSON-escapes a string onto stdout (backslash and double-quote only - the
 # inputs here are all plain ASCII command line flags/filenames, never
@@ -53,16 +54,18 @@ export CLOUDYQUAKE_EXTRA_ARGS_JSON="${EXTRA_ARGS_JSON}]"
 CLOUDYQUAKE_WS_HOST=$(printf '%s' "$CLOUDYQUAKE_WS_URL" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##; s#[:/].*##')
 # Unlike fteqw-server's own "-game qw" (server-side gamecode - see its
 # docker-entrypoint.sh), a native *client* never executes gamecode, so it
-# only needs "-game GAMEDIR" when a mission pack/mod changes client-visible
-# assets (models/maps) to match what the server's running - not "qw"
-# itself.
-CLOUDYQUAKE_GAME_ARG=""
-[ -n "${GAMEDIR:-}" ] && CLOUDYQUAKE_GAME_ARG="-game ${GAMEDIR} "
-CLOUDYQUAKE_NATIVE_CMD="fteqw ${CLOUDYQUAKE_GAME_ARG}+set password \"<your password>\" +connect ${CLOUDYQUAKE_WS_HOST}:${SV_PORT:-27500}"
+# only needs "-game" for each of GAMEDIRS when a mission pack/mod/map pack
+# changes client-visible assets (models/maps) to match what the server's
+# running - not "qw" itself.
+CLOUDYQUAKE_GAME_ARGS=""
+for gd in ${GAMEDIRS:-}; do
+    CLOUDYQUAKE_GAME_ARGS="${CLOUDYQUAKE_GAME_ARGS}-game ${gd} "
+done
+CLOUDYQUAKE_NATIVE_CMD="fteqw ${CLOUDYQUAKE_GAME_ARGS}+set password \"<your password>\" +connect ${CLOUDYQUAKE_WS_HOST}:${SV_PORT:-27500}"
 export CLOUDYQUAKE_NATIVE_CMD_JSON=$(json_escape "$CLOUDYQUAKE_NATIVE_CMD")
 
 # config.base.json holds everything in config.json except "playerName",
-# "password", "gameFiles" and "gamedir", which nginx/auth.js fills in
+# "password", "gameFiles" and "gamedirs", which nginx/auth.js fills in
 # per-request from the client's own Basic Auth credentials, the PASSWORD
 # env var, and the /paks volume's actual contents respectively - see
 # nginx.conf's "location = /config.json".

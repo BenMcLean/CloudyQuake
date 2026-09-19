@@ -113,16 +113,19 @@ install already is - one subfolder per gamedir:
 
 ```
 paks/
-  id1/pak0.pak       <- required, the base game
-  id1/pak1.pak       <- optional, full registered game instead of shareware
-  hipnotic/pak0.pak  <- optional: an official mission pack, or your own mod
+  id1/pak0.pak        <- required, the base game
+  id1/pak1.pak        <- optional, full registered game instead of shareware
+  hipnotic/pak0.pak   <- an official mission pack
+  mymappack/pak0.pak  <- your own map pack, mod, or anything else
 ```
 
-`id1/` is always loaded. Pick at most one more folder to load alongside it
-with `GAMEDIR` (e.g. `GAMEDIR=hipnotic`) - a mission pack, a total
-conversion, or a QuakeC mod, anything that follows Quake's own `-game
-<gamedir>` convention. What goes in either folder is entirely up to you,
-same as CloudyDoom's `WAD_DIR`:
+`id1/` is always loaded. `GAMEDIRS` stacks any number of further gamedirs
+on top, in order (e.g. `GAMEDIRS="hipnotic mymappack"` for Scourge of
+Armagon plus a custom map pack over it) - a mission pack, a total
+conversion, a QuakeC mod, anything that follows Quake's own `-game
+<gamedir>` convention (fteqw supports up to 8 stacked gamedirs total). What
+goes in any of these folders is entirely up to you, same as CloudyDoom's
+`WAD_DIR`:
 
 - Your own copy of `pak0.pak`/`pak1.pak` (from the original CD, Steam, GOG,
   etc.), copied out of your install's `id1/` folder, for the full game.
@@ -131,7 +134,7 @@ same as CloudyDoom's `WAD_DIR`:
   deathmatch levels beyond `dm3` (check what's actually in your copy - the
   exact map/content set has varied across releases).
 - The official mission packs (`hipnotic/`, `rogue/`) or a third-party
-  QuakeC mod's own gamedir, via `GAMEDIR`.
+  QuakeC mod's own gamedir, via `GAMEDIRS`.
 
 Whatever you use, it's your own responsibility to have the rights to serve
 it to whoever you invite - `PASSWORD` and `SV_PUBLIC=0` just keep it off the
@@ -143,6 +146,16 @@ the browser client (found dynamically per-request by `nginx/auth.js` - drop
 a new pak in and it's picked up without a restart); loose/unpacked assets
 are ignored web-side, though `fteqw-server` itself will still see and use
 everything in the folder, packed or not.
+
+**A standalone map or small map pack usually doesn't need any of this at
+all.** fteqw auto-downloads any map a connecting client doesn't already
+have, straight from `fteqw-server` over the game connection itself (see
+fteqw's own `specs/browser.txt`) - so just dropping extra `.bsp` files into
+an already-loaded gamedir's `maps/` folder (e.g. `paks/id1/maps/mymap.bsp`)
+works with no pak, no `GAMEDIRS` entry, and no nginx involvement, for both
+web and native clients. Reach for a dedicated `GAMEDIRS` entry instead when
+a map pack ships its own textures/models/sounds bundled as a pak, or you
+specifically want it toggleable independently of `id1/`.
 
 `PAK_DIR` is mounted **read-only** into both containers - neither can write
 to it. On a real Linux host, `nginx` also needs to actually be able to

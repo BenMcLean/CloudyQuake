@@ -61,16 +61,29 @@ SV_PUBLIC="${SV_PUBLIC:-0}"
 PASSWORD="${PASSWORD:-}"
 
 # -game qw is always loaded first, for the baked-in/overridden QuakeWorld
-# gamecode (see the symlink-merge above). GAMEDIR optionally stacks a
-# mission pack or mod's own gamedir on top (fteqw's own -game handling
-# supports repeating the flag to build a search-path stack, later ones
-# taking priority - see fteqw's engine/common/fs.c). Leave GAMEDIR unset
-# for base id1 + qw only.
-GAMEDIR="${GAMEDIR:-}"
+# gamecode (see the symlink-merge above). GAMEDIRS optionally stacks any
+# number of further gamedirs on top - space-separated, applied in order,
+# e.g. "hipnotic mymappack" for a mission pack plus a custom map pack of
+# your own on top of it. fteqw's own -game handling supports repeating the
+# flag to build a search-path stack of up to 8 total gamedirs (later ones
+# taking priority for same-named files) - see fteqw's
+# engine/common/fs.c/common.h (MAX_GAMES-equivalent: gamepath[8]). Leave
+# GAMEDIRS unset for base id1 + qw only.
+#
+# A standalone map or small map pack often doesn't need its own gamedir at
+# all: fteqw will auto-download any map a client doesn't already have
+# straight from this server over the game connection (see fteqw's
+# specs/browser.txt - "custom maps do not need to be named in manifests as
+# they will just be downloaded from the game server automatically"), so
+# just dropping extra .bsp files into an existing gamedir's maps/ folder
+# also works, with no config here and no pak/nginx involvement at all -
+# GAMEDIRS is for when you specifically want a map pack's own gamedir
+# (e.g. it ships alongside its own textures/sounds as a pak).
+GAMEDIRS="${GAMEDIRS:-}"
 set -- -game qw
-if [ -n "$GAMEDIR" ]; then
-    set -- "$@" -game "$GAMEDIR"
-fi
+for gd in $GAMEDIRS; do
+    set -- "$@" -game "$gd"
+done
 
 # chocolate-doom's stdout-buffering bug (see CloudyDoom's doom-server
 # entrypoint) applies just as much here: under Docker, stdout is never a

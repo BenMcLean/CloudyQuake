@@ -97,10 +97,10 @@ var PAK_EXT_RE = /\.(pak|pk3)$/i;
 // loose (unpacked) assets in a gamedir aren't served to the browser
 // client, since retail/mod content is expected to ship as
 // pak0.pak/pak1.pak/etc, matching what fteqw-server itself needs anyway
-// (see its docker-entrypoint.sh). A missing gamedir (e.g. GAMEDIR unset,
-// or pointing at a folder that isn't actually in PAK_DIR) just yields no
-// files rather than an error - config() still returns successfully with
-// whatever it did find.
+// (see its docker-entrypoint.sh). A missing gamedir (e.g. a GAMEDIRS entry
+// pointing at a folder that isn't actually in PAK_DIR) just yields no files
+// rather than an error - config() still returns successfully with whatever
+// it did find.
 function listGameFiles(gamedir) {
     var fs = require('fs');
     var dir = PAK_ROOT + '/' + gamedir;
@@ -170,23 +170,23 @@ function config(r) {
     // handshake itself.
     base.password = process.env.PASSWORD || '';
 
-    // id1/ is always served; GAMEDIR (same var fteqw-server reads, see its
-    // docker-entrypoint.sh) optionally adds a mission pack or mod's own
-    // pak files on top, matching the extra "-game" it stacks server-side.
-    // Discovered fresh per-request (cheap - a couple of readdirSync calls
-    // on a handful of gamedirs) rather than once at container start, so a
-    // pak dropped into a running server's volume shows up without a
-    // restart.
-    var gamedir = process.env.GAMEDIR || '';
+    // id1/ is always served; GAMEDIRS (same var fteqw-server reads, see its
+    // docker-entrypoint.sh) optionally adds any number of further gamedirs
+    // (a mission pack, a mod, a map pack, ...) on top, in order, matching
+    // the extra "-game" flags it stacks server-side. Discovered fresh
+    // per-request (cheap - a couple of readdirSync calls on a handful of
+    // gamedirs) rather than once at container start, so a pak dropped into
+    // a running server's volume shows up without a restart.
+    var gamedirs = (process.env.GAMEDIRS || '').split(/\s+/).filter(Boolean);
     var gameFiles = listGameFiles('id1');
-    if (gamedir) {
-        var extra = listGameFiles(gamedir);
+    for (var i = 0; i < gamedirs.length; i++) {
+        var extra = listGameFiles(gamedirs[i]);
         for (var key in extra) {
             gameFiles[key] = extra[key];
         }
     }
     base.gameFiles = gameFiles;
-    base.gamedir = gamedir || null;
+    base.gamedirs = gamedirs;
 
     r.headersOut['Content-Type'] = 'application/json';
     r.headersOut['Cache-Control'] = 'no-store';

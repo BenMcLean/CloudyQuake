@@ -23,11 +23,12 @@ services:
       # instead). Combined with a blank PASSWORD above, this skips the
       # login prompt entirely - see nginx/auth.js.
       USE_LOGIN_NAME: ${USE_LOGIN_NAME:-true}
-      # Which extra gamedir (mission pack or mod) to serve to browsers,
-      # alongside the always-present id1/ - see PAK_DIR below and GAMEDIR
-      # on fteqw-server. Must match between the two services, so it's set
-      # once here from the same .env var. Blank means base game only.
-      GAMEDIR: ${GAMEDIR:-}
+      # Which extra gamedirs (mission packs, mods, map packs) to serve to
+      # browsers, alongside the always-present id1/ - space-separated, see
+      # PAK_DIR below and GAMEDIRS on fteqw-server. Must match between the
+      # two services, so it's set once here from the same .env var. Blank
+      # means base game only.
+      GAMEDIRS: ${GAMEDIRS:-}
       EXTRA_ARGS: ${EXTRA_ARGS:-}
       # Only used here to build config.json's human-facing nativeClientCmd -
       # nginx never talks raw UDP/WS to fteqw-server itself.
@@ -41,7 +42,7 @@ services:
     volumes:
       # PAK_DIR's own subfolders (id1/, hipnotic/, rogue/, a mod's own
       # folder, ...) become the gamedirs nginx can serve from - see
-      # nginx/auth.js's discoverPakFiles(). Same volume, same layout, as
+      # nginx/auth.js's listGameFiles(). Same volume, same layout, as
       # fteqw-server's mount below.
       - ${PAK_DIR:-./paks}:/paks:ro
     restart: unless-stopped
@@ -68,10 +69,11 @@ services:
       # actually gates joining the game itself (HTTP Basic Auth can't reach
       # the WebSocket handshake - see nginx/auth.js's file-level comment).
       PASSWORD: ${PASSWORD:-}
-      # Extra gamedir (mission pack or mod) to stack on top of the base
-      # game via an additional "-game" - see PAK_DIR below and
-      # docker-entrypoint.sh. Blank means base game (id1 + qw) only.
-      GAMEDIR: ${GAMEDIR:-}
+      # Extra gamedirs (mission packs, mods, map packs) to stack on top of
+      # the base game, space-separated, via additional "-game" flags in
+      # order - see PAK_DIR below and docker-entrypoint.sh. Blank means
+      # base game (id1 + qw) only.
+      GAMEDIRS: ${GAMEDIRS:-}
     volumes:
       # The dedicated server is authoritative - unlike CloudyDoom's
       # chocolate-server, which never touches the WAD at all, fteqw-server

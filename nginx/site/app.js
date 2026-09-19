@@ -116,11 +116,12 @@ fetch("config.json", { cache: "no-store" })
         // nothing to set, so fteqw falls back to its own defaults.
         const nameArgs = config.playerName ? ["+name", config.playerName] : [];
         const passArgs = config.password ? ["+password", config.password] : [];
-        // config.gamedir mirrors fteqw-server's own extra "-game GAMEDIR"
-        // (see its docker-entrypoint.sh) - a mission pack/mod's
-        // client-visible assets need this to actually get searched, same
-        // as the server needs it for its own gamecode/assets.
-        const gameArgs = config.gamedir ? ["-game", config.gamedir] : [];
+        // config.gamedirs mirrors fteqw-server's own extra "-game GAMEDIRS"
+        // stack (see its docker-entrypoint.sh), in the same order - a
+        // mission pack/mod/map pack's client-visible assets need this to
+        // actually get searched, same as the server needs it for its own
+        // gamecode/assets.
+        const gameArgs = Array.isArray(config.gamedirs) ? config.gamedirs.flatMap((gd) => ["-game", gd]) : [];
 
         Module.arguments = gameArgs
             .concat(["+connect", config.wsUrl])
