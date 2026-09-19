@@ -1,0 +1,71 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    ports:
+      - "${WEB_HTTP_PORT:-8080}:8080"
+    environment:
+      CLOUDYQUAKE_WS_URL: ${CLOUDYQUAKE_WS_URL:?Set CLOUDYQUAKE_WS_URL to the externally-reachable websocket URL, e.g. wss://quakeworld.example.com}
+      # Shared password, gating both the web login (and pak downloads) and
+      # joining the match itself - see nginx/auth.js and
+      # fteqw-server/docker-entrypoint.sh. Optional - leave blank in .env
+      # for a public server with nothing to gate.
+      PASSWORD: ${PASSWORD:-}
+      # Set to "false" to skip using the login username as the in-game
+      # player name (falls back to fteqw's own default player name
+      # instead). Combined with a blank PASSWORD above, this skips the
+      # login prompt entirely - see nginx/auth.js.
+      USE_LOGIN_NAME: ${USE_LOGIN_NAME:-true}
+      PAK0_PATH: ${PAK0_PATH:-pak0.pak}
+      PAK1_PATH: ${PAK1_PATH:-pak1.pak}
+      EXTRA_ARGS: ${EXTRA_ARGS:-}
+      # Only used here to build config.json's human-facing nativeClientCmd -
+      # nginx never talks raw UDP/WS to fteqw-server itself.
+      SV_PORT: ${SV_PORT:-27500}
+    # Runs as nginx's own built-in user (101:101) by default - matches what
+    # nginx.conf's lack of a "user" directive already implies. Override
+    # with PUID/PGID if your PAK_DIR is owned by a specific uid/gid on the
+    # host, e.g. PUID=1001 PGID=1001 in .env - same convention as the
+    # linuxserver.io images.
+    user: "${PUID:-101}:${PGID:-101}"
+    volumes:
+      - ${PAK_DIR:-./paks}:/paks:ro
+    restart: unless-stopped
+    logging: *default-logging
+
+  fteqw-server:
+    build:
+      context: ./fteqw-server
+    ports:
+      - "${SV_PORT:-27500}:${SV_PORT:-27500}/udp"
+      - "${SV_PORT_TCP:-27500}:${SV_PORT_TCP:-27500}/tcp"
+    environment:
+      SV_PORT: ${SV_PORT:-27500}
+      SV_PORT_TCP: ${SV_PORT_TCP:-27500}
+      # Not named HOSTNAME - that name is reserved for the container's own
+      # kernel hostname in some shells/tools, so this uses its own var
+      # instead to avoid any ambiguity.
+      SERVER_HOSTNAME: ${SERVER_HOSTNAME:-CloudyQuake}
+      MAP: ${MAP:-dm3}
+      DEATHMATCH: ${DEATHMATCH:-1}
+      MAXCLIENTS: ${MAXCLIENTS:-16}
+      SV_PUBLIC: ${SV_PUBLIC:-0}
+      # Same shared secret as nginx's PASSWORD above - this is what
+      # actually gates joining the game itself (HTTP Basic Auth can't reach
+      # the WebSocket handshake - see nginx/auth.js's file-level comment).
+      PASSWORD: ${PASSWORD:-}
+    volumes:
+      # The dedicated server is authoritative - unlike CloudyDoom's
+      # chocolate-server, which never touches the WAD at all, fteqw-server
+      # actually loads maps/models/sounds from these pak files to run the
+      # game, so this volume is mounted here too, not just into nginx.
+      - ${PAK_DIR:-./paks}:/fte/id1:ro
+    restart: unless-stopped
+    logging: *default-logging
