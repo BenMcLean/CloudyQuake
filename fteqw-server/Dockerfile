@@ -16,10 +16,15 @@ FROM ubuntu:24.04 AS builder
 ARG FTEQW_REF=2025-09-27
 
 # Matches the linux build dependencies fteqw's own build_setup.sh documents
-# for its "Build for Linux x86_64?" option, plus git/build-essential to
-# actually clone and drive the Makefile.
+# for its "Build for Linux x86_64?" option, plus its generic prerequisites
+# (git/automake/libtool/p7zip/zip/wget/pkg-config - "makelibs" below shells
+# out to wget and pkg-config directly to fetch and configure bundled
+# third-party library sources like libjpeg, neither of which build-essential
+# pulls in on its own) and build-essential itself to actually drive the
+# Makefile.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates git build-essential \
+        ca-certificates git build-essential automake libtool \
+        p7zip-full zip wget pkg-config \
         gcc-multilib g++-multilib mesa-common-dev \
         libasound2-dev libxcursor-dev libgnutls28-dev \
     && rm -rf /var/lib/apt/lists/*
