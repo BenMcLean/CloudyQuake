@@ -146,17 +146,25 @@ it to whoever you invite - `PASSWORD` and `SV_PUBLIC=0` just keep it off the
 public internet/server browser by default, they're not a substitute for
 that.
 
-Only `*.pak`/`*.pk3` files directly inside a gamedir folder are served to
-the browser client (found dynamically per-request by `nginx/auth.js` - drop
-a new pak in and it's picked up without a restart); loose/unpacked assets
-are ignored web-side, though `fteqw-server` itself will still see and use
-everything in the folder, packed or not.
+Every file anywhere inside `id1/` or a gamedir folder you've listed in
+`GAMEDIRS` - however deeply nested - is served to the browser client
+(found dynamically per-request by `nginx/auth.js` - drop a new file in,
+at any depth, and it's picked up without a restart): packed
+`pak0.pak`/`pak1.pak`/etc., a mod's own loose `config.cfg`/`autoexec.cfg`,
+loose maps/textures/sounds under `maps/`/`sound/`/etc. (common when a
+mod's own maps were distributed separately by different map authors rather
+than bundled into one pak), or anything else. There's no extension or
+depth whitelist: only folders you've actually opted into (`id1/` plus
+whatever's in `GAMEDIRS`) get listed at all, so what's in them is already
+your call, same as it is for `fteqw-server`, which loads everything in
+those same folders regardless of type or nesting.
 
 **A standalone map or small map pack usually doesn't need any of this at
-all.** fteqw auto-downloads any map a connecting client doesn't already
-have, straight from `fteqw-server` over the game connection itself (see
-fteqw's own `specs/browser.txt`) - so just dropping extra `.bsp` files into
-an already-loaded gamedir's `maps/` folder (e.g. `paks/id1/maps/mymap.bsp`)
+all**, even now that loose files are served proactively. fteqw also
+auto-downloads any map a connecting client doesn't already have, straight
+from `fteqw-server` over the game connection itself (see fteqw's own
+`specs/browser.txt`) - so just dropping extra `.bsp` files into an
+already-loaded gamedir's `maps/` folder (e.g. `paks/id1/maps/mymap.bsp`)
 works with no pak, no `GAMEDIRS` entry, and no nginx involvement, for both
 web and native clients. Reach for a dedicated `GAMEDIRS` entry instead when
 a map pack ships its own textures/models/sounds bundled as a pak, or you

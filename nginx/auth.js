@@ -89,7 +89,6 @@ function authenticate(r) {
 }
 
 var PAK_ROOT = '/paks';
-var PAK_EXT_RE = /\.(pak|pk3)$/i;
 
 // Case-insensitively finds `canon` among PAK_ROOT's own top-level
 // subfolders, returning its real on-disk name (or null if there's no
@@ -116,39 +115,61 @@ function findGamedirRealName(canon) {
     return null;
 }
 
-// Lists the .pak/.pk3 files directly inside PAK_ROOT/<realGamedirName>/,
-// mapping each to a Module.files entry (see site/app.js) keyed by fteqw's
-// own canonical lowercase virtual path ("<canon>/<lowercased filename>"),
-// valued with the real on-disk URL nginx can actually serve ("paks/<real
-// gamedir name>/<real filename>") - the two are kept deliberately distinct
-// so the virtual path always matches what fteqw itself expects/constructs
-// internally (see findGamedirRealName's comment) regardless of how the
-// files are actually cased on disk. Only top-level files are considered;
-// loose (unpacked) assets in a gamedir aren't served to the browser
-// client, since retail/mod content is expected to ship as
-// pak0.pak/pak1.pak/etc, matching what fteqw-server itself needs anyway
-// (see its docker-entrypoint.sh). A missing gamedir (e.g. a GAMEDIRS entry
-// with no matching folder under PAK_DIR, any case) just yields no files
-// rather than an error - config() still returns successfully with whatever
-// it did find.
-function listGameFiles(canon) {
+// Recursively walks `dir` (an on-disk path), adding every file found -
+// however deep - to `out`, keyed by fteqw's own canonical lowercase virtual
+// path ("<canon>/<lowercased relative path>") and valued with the real
+// on-disk URL nginx can actually serve ("paks/<real gamedir name>/<real
+// relative path>"). `relPrefix` is the "" (root) or "sub/dir/" portion of
+// that relative path built up so far, always using forward slashes and
+// already-lowercased, to match fteqw's own path separator/casing
+// convention regardless of the real filenames' casing or the host OS.
+function walkGameFiles(canon, realName, dir, relPrefix, out) {
     var fs = require('fs');
+    var entries;
+    try {
+        entries = fs.readdirSync(dir);
+    } catch (e) {
+        return;
+    }
+    for (var i = 0; i < entries.length; i++) {
+        var name = entries[i];
+        var full = dir + '/' + name;
+        var stat;
+        try {
+            stat = fs.statSync(full);
+        } catch (e) {
+            continue;
+        }
+        var rel = relPrefix + name.toLowerCase();
+        if (stat.isDirectory()) {
+            walkGameFiles(canon, realName, full, rel + '/', out);
+        } else if (stat.isFile()) {
+            out[canon + '/' + rel] = 'paks/' + realName + '/' + relPrefix + name;
+        }
+    }
+}
+
+// Lists every file anywhere under PAK_ROOT/<realGamedirName>/, however
+// deeply nested, as Module.files entries (see site/app.js) - see
+// walkGameFiles() above for exactly how each one is keyed/valued. No
+// extension or top-level-only filter: this is only ever called for id1/ or
+// a gamedir the operator explicitly opted into via GAMEDIRS (see config()
+// below), so whatever's in there - packed or loose, top-level or nested
+// (e.g. a mod's maps/ shipped loose because different map authors
+// distributed their own files separately, rather than everything packed
+// into one pak0.pak) - is already their call, same as it is for
+// fteqw-server, which loads everything in these same folders regardless of
+// type or depth (see its docker-entrypoint.sh). A missing gamedir (e.g. a
+// GAMEDIRS entry with no matching folder under PAK_DIR, any case) just
+// yields no files rather than an error - config() still returns
+// successfully with whatever it did find.
+function listGameFiles(canon) {
     var realName = findGamedirRealName(canon);
     var out = {};
     if (!realName) {
         return out;
     }
-    var entries;
-    try {
-        entries = fs.readdirSync(PAK_ROOT + '/' + realName);
-    } catch (e) {
-        return out;
-    }
-    for (var i = 0; i < entries.length; i++) {
-        var name = entries[i];
-        if (!PAK_EXT_RE.test(name)) continue;
-        out[canon + '/' + name.toLowerCase()] = 'paks/' + realName + '/' + name;
-    }
+    walkGameFiles(canon, realName, PAK_ROOT + '/' + realName, '', out);
     return out;
 }
 
