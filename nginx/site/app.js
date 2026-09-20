@@ -98,7 +98,7 @@ fetch("config.json", { cache: "no-store" })
     .then((config) => {
         if (!config.wsUrl) throw new Error("config.json is missing wsUrl");
         if (!config.gameFiles || !Object.keys(config.gameFiles).length) {
-            throw new Error("config.json has no gameFiles - is a pak0.pak actually in the id1/ folder of your PAK_DIR volume?");
+            throw new Error("config.json has no gameFiles - is a pak0.pak actually in the " + (config.baseGamedir || "id1") + "/ folder of your PAK_DIR volume?");
         }
 
         // String values in Module.files are treated as URLs and downloaded
@@ -123,11 +123,19 @@ fetch("config.json", { cache: "no-store" })
         // gamecode/assets.
         const gameArgs = Array.isArray(config.gamedirs) ? config.gamedirs.flatMap((gd) => ["-game", gd]) : [];
 
+        // config.clientArgs (CLIENT_ARGS) is a raw fteqw command-line
+        // passthrough - see .env.example. If your server's SERVER_ARGS
+        // includes an engine-mode switch like "-hexen2", add the same
+        // switch to CLIENT_ARGS here too, same as a native client would
+        // need it. "-"-prefixed switches are parsed by fteqw up front
+        // regardless of where they fall in argv (unlike "+" commands,
+        // which run in sequence), so appending clientArgs after +connect
+        // here is fine either way.
         Module.arguments = gameArgs
             .concat(["+connect", config.wsUrl])
             .concat(nameArgs)
             .concat(passArgs)
-            .concat(Array.isArray(config.extraArgs) ? config.extraArgs : []);
+            .concat(Array.isArray(config.clientArgs) ? config.clientArgs : []);
 
         setStatusText("Downloading game data...");
         loadEngine();

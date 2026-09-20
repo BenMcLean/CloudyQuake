@@ -29,7 +29,18 @@ services:
       # two services, so it's set once here from the same .env var. Blank
       # means base game only.
       GAMEDIRS: ${GAMEDIRS:-}
-      EXTRA_ARGS: ${EXTRA_ARGS:-}
+      # Raw, space-separated fteqw client command line switches/cvars,
+      # passed through as-is - the client-side counterpart to
+      # fteqw-server's own SERVER_ARGS below, named distinctly so it's
+      # unambiguous which side of the connection each one reaches.
+      CLIENT_ARGS: ${CLIENT_ARGS:-}
+      # Which PAK_DIR subfolder is always served, alongside GAMEDIRS - see
+      # PAK_DIR below and BASE_GAMEDIR on fteqw-server, whose own
+      # docker-entrypoint.sh explains why this is purely a pak-volume
+      # convention, unrelated to which fteqw flags are actually in play.
+      # Must match between the two services, so it's set once here from
+      # the same .env var, same as GAMEDIRS.
+      BASE_GAMEDIR: ${BASE_GAMEDIR:-id1}
       # Only used here to build config.json's human-facing nativeClientCmd -
       # nginx never talks raw UDP/WS to fteqw-server itself.
       SV_PORT: ${SV_PORT:-27500}
@@ -57,14 +68,6 @@ services:
     environment:
       SV_PORT: ${SV_PORT:-27500}
       SV_PORT_TCP: ${SV_PORT_TCP:-27500}
-      # Not named HOSTNAME - that name is reserved for the container's own
-      # kernel hostname in some shells/tools, so this uses its own var
-      # instead to avoid any ambiguity.
-      SERVER_HOSTNAME: ${SERVER_HOSTNAME:-CloudyQuake}
-      MAP: ${MAP:-dm3}
-      DEATHMATCH: ${DEATHMATCH:-1}
-      MAXCLIENTS: ${MAXCLIENTS:-16}
-      SV_PUBLIC: ${SV_PUBLIC:-0}
       # Same shared secret as nginx's PASSWORD above - this is what
       # actually gates joining the game itself (HTTP Basic Auth can't reach
       # the WebSocket handshake - see nginx/auth.js's file-level comment).
@@ -72,8 +75,18 @@ services:
       # Extra gamedirs (mission packs, mods, map packs) to stack on top of
       # the base game, space-separated, via additional "-game" flags in
       # order - see PAK_DIR below and docker-entrypoint.sh. Blank means
-      # base game (id1 + qw) only.
+      # base gamedir only (see BASE_GAMEDIR below).
       GAMEDIRS: ${GAMEDIRS:-}
+      # Which PAK_DIR subfolder is fteqw's implicit default/always-loaded
+      # gamedir - "id1" (default) for stock Quake/QuakeWorld, or e.g.
+      # "data1" if SERVER_ARGS below points at a different game whose own
+      # retail layout calls it something else. See docker-entrypoint.sh.
+      BASE_GAMEDIR: ${BASE_GAMEDIR:-id1}
+      # Raw, space-separated fteqw startup switches/cvars, passed through
+      # as-is - hostname, map, deathmatch, maxclients, sv_public, etc. all
+      # belong here, not as their own vars - see docker-entrypoint.sh for
+      # why. "-game qw" is always baked in, not part of this.
+      SERVER_ARGS: ${SERVER_ARGS:-}
     volumes:
       # The dedicated server is authoritative - unlike CloudyDoom's
       # chocolate-server, which never touches the WAD at all, fteqw-server

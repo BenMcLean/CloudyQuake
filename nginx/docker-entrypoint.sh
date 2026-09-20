@@ -21,26 +21,29 @@ json_escape() {
     printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
-# EXTRA_ARGS is a whitespace-separated string of raw fteqw command line
+# CLIENT_ARGS is a whitespace-separated string of raw fteqw command line
 # flags/cvars for anything site/app.js doesn't already set explicitly (e.g.
-# "+set rate 25000 +set cl_nolerp 1"). Unlike Doom's netcode, QuakeWorld is
-# client-server authoritative - the server simulates the game and the
-# client just renders/predicts, so (unlike CloudyDoom's DOOM_EXTRA_ARGS)
-# there's no requirement that every client's settings match the server's or
-# each other's. Unset by default - fteqw's own client defaults apply.
-EXTRA_ARGS_JSON="["
+# "+set rate 25000 +set cl_nolerp 1") - the client-side counterpart to
+# fteqw-server's own SERVER_ARGS (see its docker-entrypoint.sh), named
+# distinctly so it's unambiguous which side of the connection each one
+# actually reaches. Unlike Doom's netcode, QuakeWorld is client-server
+# authoritative - the server simulates the game and the client just
+# renders/predicts, so (unlike CloudyDoom's DOOM_EXTRA_ARGS) there's no
+# requirement that every client's settings match the server's or each
+# other's. Unset by default - fteqw's own client defaults apply.
+CLIENT_ARGS_JSON="["
 first=1
 set -f
-for arg in ${EXTRA_ARGS:-}; do
+for arg in ${CLIENT_ARGS:-}; do
     if [ "$first" -eq 1 ]; then
         first=0
     else
-        EXTRA_ARGS_JSON="${EXTRA_ARGS_JSON},"
+        CLIENT_ARGS_JSON="${CLIENT_ARGS_JSON},"
     fi
-    EXTRA_ARGS_JSON="${EXTRA_ARGS_JSON}\"$(json_escape "$arg")\""
+    CLIENT_ARGS_JSON="${CLIENT_ARGS_JSON}\"$(json_escape "$arg")\""
 done
 set +f
-export CLOUDYQUAKE_EXTRA_ARGS_JSON="${EXTRA_ARGS_JSON}]"
+export CLOUDYQUAKE_CLIENT_ARGS_JSON="${CLIENT_ARGS_JSON}]"
 
 # nativeClientCmd is a convenience field for humans only - site/app.js never
 # reads it. It's the equivalent command line a player running their own
@@ -52,11 +55,15 @@ export CLOUDYQUAKE_EXTRA_ARGS_JSON="${EXTRA_ARGS_JSON}]"
 # split-domain setup the README recommends, but not for every possible
 # deployment - it's a starting point to edit, not gospel.
 CLOUDYQUAKE_WS_HOST=$(printf '%s' "$CLOUDYQUAKE_WS_URL" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##; s#[:/].*##')
-# Unlike fteqw-server's own "-game qw" (server-side gamecode - see its
-# docker-entrypoint.sh), a native *client* never executes gamecode, so it
-# only needs "-game" for each of GAMEDIRS when a mission pack/mod/map pack
-# changes client-visible assets (models/maps) to match what the server's
-# running - not "qw" itself.
+# Unlike fteqw-server's own SERVER_ARGS (server-side, potentially including
+# gamecode-mode switches like "-hexen2" - see its docker-entrypoint.sh), a
+# native *client* never executes gamecode, so this only needs "-game" for
+# each of GAMEDIRS when a mission pack/mod/map pack changes client-visible
+# assets (models/maps) to match what the server's running. If SERVER_ARGS
+# includes an engine-mode switch like "-hexen2", add it here manually too
+# (or to your own native client's config) - this is a convenience starting
+# point, not gospel, same as the rest of this field - see the README's
+# "Connecting" section.
 CLOUDYQUAKE_GAME_ARGS=""
 for gd in ${GAMEDIRS:-}; do
     gd=$(printf '%s' "$gd" | tr '[:upper:]' '[:lower:]')
@@ -82,7 +89,7 @@ export CLOUDYQUAKE_NATIVE_CMD_JSON=$(json_escape "$CLOUDYQUAKE_NATIVE_CMD")
 # per-request from the client's own Basic Auth credentials, the PASSWORD
 # env var, and the /paks volume's actual contents respectively - see
 # nginx.conf's "location = /config.json".
-envsubst '${CLOUDYQUAKE_WS_URL} ${CLOUDYQUAKE_EXTRA_ARGS_JSON} ${CLOUDYQUAKE_NATIVE_CMD_JSON}' \
+envsubst '${CLOUDYQUAKE_WS_URL} ${CLOUDYQUAKE_CLIENT_ARGS_JSON} ${CLOUDYQUAKE_NATIVE_CMD_JSON}' \
     < /etc/cloudyquake/config.base.json.template > /etc/cloudyquake/config.base.json
 
 exec nginx -g 'daemon off;'

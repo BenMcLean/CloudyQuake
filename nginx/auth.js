@@ -90,6 +90,18 @@ function authenticate(r) {
 
 var PAK_ROOT = '/paks';
 
+// Which PAK_ROOT subfolder is always served, regardless of GAMEDIRS -
+// mirrors fteqw-server/docker-entrypoint.sh's own BASE_GAMEDIR (same env
+// var), which symlinks the same-named PAK_DIR subfolder in as fteqw's
+// implicit default gamedir. This is purely about which folder our own pak
+// volume convention treats as "the base game" - it has nothing to do with
+// which fteqw flags (-hexen2, -game qw, ...) actually get passed to the
+// engine, which live entirely in SERVER_ARGS/CLIENT_ARGS instead. See
+// .env.example's BASE_GAMEDIR comment.
+function baseGamedir() {
+    return (process.env.BASE_GAMEDIR || 'id1').toLowerCase();
+}
+
 // Case-insensitively finds `canon` among PAK_ROOT's own top-level
 // subfolders, returning its real on-disk name (or null if there's no
 // match). Quake installs are conventionally cased however their original
@@ -224,15 +236,21 @@ function config(r) {
     // handshake itself.
     base.password = process.env.PASSWORD || '';
 
-    // id1/ is always served; GAMEDIRS (same var fteqw-server reads, see its
-    // docker-entrypoint.sh) optionally adds any number of further gamedirs
-    // (a mission pack, a mod, a map pack, ...) on top, in order, matching
-    // the extra "-game" flags it stacks server-side. Discovered fresh
-    // per-request (cheap - a couple of readdirSync calls on a handful of
-    // gamedirs) rather than once at container start, so a pak dropped into
-    // a running server's volume shows up without a restart.
+    // Named so site/app.js can build a useful error message if it's
+    // missing, without needing to know anything about "which game" this
+    // is - see baseGamedir() above.
+    base.baseGamedir = baseGamedir();
+
+    // The base gamedir (BASE_GAMEDIR, "id1" by default) is always served;
+    // GAMEDIRS (same var fteqw-server reads, see its docker-entrypoint.sh)
+    // optionally adds any number of further gamedirs (a mission pack, a
+    // mod, a map pack, ...) on top, in order, matching the extra "-game"
+    // flags it stacks server-side. Discovered fresh per-request (cheap - a
+    // couple of readdirSync calls on a handful of gamedirs) rather than
+    // once at container start, so a pak dropped into a running server's
+    // volume shows up without a restart.
     var gamedirs = (process.env.GAMEDIRS || '').toLowerCase().split(/\s+/).filter(Boolean);
-    var gameFiles = listGameFiles('id1');
+    var gameFiles = listGameFiles(baseGamedir());
     for (var i = 0; i < gamedirs.length; i++) {
         var extra = listGameFiles(gamedirs[i]);
         for (var key in extra) {

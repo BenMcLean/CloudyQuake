@@ -1,5 +1,5 @@
 {
   "wsUrl": "${CLOUDYQUAKE_WS_URL}",
-  "extraArgs": ${CLOUDYQUAKE_EXTRA_ARGS_JSON},
+  "clientArgs": ${CLOUDYQUAKE_CLIENT_ARGS_JSON},
   "nativeClientCmd": "${CLOUDYQUAKE_NATIVE_CMD_JSON}"
 }

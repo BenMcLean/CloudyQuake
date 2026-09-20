@@ -16,9 +16,9 @@ Native QuakeWorld clients (fteqw, or any other QW-compatible engine) can also
 connect directly to the same server and play alongside the browser players -
 see [Connecting](#connecting) below.
 
-Private and unlisted by default (`SV_PUBLIC=0`, password-gated) rather than
-advertised on the public QuakeWorld server browser - see `.env.example` if
-you want to change that. The actual game content (`pak0.pak`, optionally
+Private and unlisted by default (`sv_public` isn't set to advertise, which
+is fteqw's own default unless you explicitly add `+set sv_public 1` to
+`SERVER_ARGS`) and password-gated. The actual game content (`pak0.pak`, optionally
 `pak1.pak`, or any QuakeC mod's own paks) is a docker volume, same as
 CloudyDoom's WAD directory - see [Getting paks](#getting-paks) for what goes
 in it, it's entirely up to you.
@@ -57,6 +57,43 @@ Two services, three published ports:
 | `nginx` | Serves the web client (fteqw's own Emscripten/WebGL port, built from [`fte-team/fteqw`](https://github.com/fte-team/fteqw), fetched at build time - see `FTEQW_REF`) behind HTTP Basic Auth. Also serves your pak files, so the auth gate covers those too. | `WEB_HTTP_PORT` (default `8080`, tcp) |
 | `fteqw-server` | A real, unmodified fteqw dedicated server (built from the same pinned `FTEQW_REF`), running standard QuakeWorld gamecode compiled from fteqw's own openly-licensed `quakec/basemod` at build time. Unlike CloudyDoom's `doom-server`, this one *is* authoritative and actually loads your pak data to run the game - see [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers). | `SV_PORT` (default `27500`, **udp**, native clients) and `SV_PORT_TCP` (default `27500`, tcp, WebSocket/browser clients) |
 
+## Supported games
+
+`SERVER_ARGS` is a raw passthrough of fteqw's own dedicated-server command
+line switches/cvars, so anything fteqw itself supports via its own flags
+is fair game, not just what this README happens to call out - the one
+exception is `-game qw`, which is always baked in rather than living in
+`SERVER_ARGS`.
+
+`BASE_GAMEDIR` (default `id1`) is the one CloudyQuake-specific concept
+alongside it - purely which `PAK_DIR` subfolder gets treated as fteqw's
+implicit always-loaded gamedir, matching whatever real retail install
+layout the game you're pointing `SERVER_ARGS` at actually uses. Neither
+var maps the other for you; they just need to agree, same as they would
+running fteqw natively outside Docker.
+
+**QuakeWorld** (the default: `BASE_GAMEDIR=id1`, `SERVER_ARGS` unset) -
+the one game this stack bakes gamecode for, compiled from fteqw's own
+openly-licensed `quakec/basemod` into the `fteqw-server` image at build
+time (see [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers)).
+QuakeWorld was never part of any retail Quake release, so there's nothing
+to source this gamecode from other than compiling it - everything else
+below instead comes entirely from your own pak volume, same as any
+`GAMEDIRS` entry.
+
+**Hexen II** (`SERVER_ARGS=-hexen2`, `BASE_GAMEDIR=data1`) - fteqw's own
+docs describe this as FTE treating Hexen II as "a glorified mod" of the
+exact same QuakeC VM and QuakeWorld-style netcode/protocol, just against a
+different base gamedir and a flag telling the engine which game's
+rules/defaults to use - so it needs no separate build or fork here either.
+Its gamecode comes entirely from your own pak volume: the base game's
+`progs.dat` ships packed inside retail `pak0.pak`/`pak1.pak`, and the
+Portal of Praevus mission pack (`GAMEDIRS=portals`) ships an improved one
+as a loose file - both get picked up automatically, nothing baked into the
+image. See [Getting paks](#getting-paks) below for the exact layout.
+Remember to add `-hexen2` to `CLIENT_ARGS` too, so the browser client's own
+fteqw build runs in the same mode (see `.env.example`).
+
 ## Quick start
 
 ```
@@ -64,7 +101,7 @@ git clone <this repo's URL>
 cd cloudyquake
 cp .env.example .env
 $EDITOR .env   # set CLOUDYQUAKE_WS_URL at minimum, and PASSWORD for a real deployment
-mkdir -p paks/id1 && cp /path/to/your/pak0.pak /path/to/your/pak1.pak paks/id1/   # see "Getting paks" below
+mkdir -p paks/id1 && cp /path/to/your/pak0.pak /path/to/your/pak1.pak paks/id1/   # see "Getting paks" below - data1/ instead of id1/ for Hexen II
 docker compose up -d --build
 ```
 
@@ -103,13 +140,16 @@ of the file for exact names, then delete whatever you don't need.
 
 You need `id1/pak0.pak` (and, for the full game rather than just the
 shareware episode, `id1/pak1.pak`) inside `paks/` (or wherever `PAK_DIR`
-points) before the game will actually run. Unlike CloudyDoom's dedicated
+points) before the game will actually run - or `data1/pak0.pak`/`pak1.pak`
+if you've set `BASE_GAMEDIR=data1` for Hexen II (see
+[Supported games](#supported-games)). Unlike CloudyDoom's dedicated
 server, **`fteqw-server` does load this data itself** - see
 [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers) -
 so it needs to be present before the server can start a map.
 
-`PAK_DIR` is a plain docker volume laid out the same way a real Quake
-install already is - one subfolder per gamedir:
+`PAK_DIR` is a plain docker volume laid out the same way a real install of
+whichever game you're running already is - one subfolder per gamedir. For
+the default (`BASE_GAMEDIR=id1`, stock Quake/QuakeWorld):
 
 ```
 paks/
@@ -119,27 +159,38 @@ paks/
   mymappack/pak0.pak  <- your own map pack, mod, or anything else
 ```
 
+...or for Hexen II (`BASE_GAMEDIR=data1`):
+
+```
+paks/
+  data1/pak0.pak       <- required, the base game
+  data1/pak1.pak       <- optional, full registered game instead of shareware
+  portals/pak3.pak     <- the Portal of Praevus mission pack (GAMEDIRS=portals)
+```
+
 Gamedir folder names and `*.pak`/`*.pk3` filenames inside `PAK_DIR` are
 matched **case-insensitively** - a Windows/GOG/Steam install's
 `Id1/PAK0.PAK` works exactly the same as `id1/pak0.pak`, so you can point
 `PAK_DIR` straight at a copied install folder without renaming anything.
 
-`id1/` is always loaded. `GAMEDIRS` stacks any number of further gamedirs
-on top, in order (e.g. `GAMEDIRS="hipnotic mymappack"` for Scourge of
-Armagon plus a custom map pack over it) - a mission pack, a total
-conversion, a QuakeC mod, anything that follows Quake's own `-game
-<gamedir>` convention (fteqw supports up to 8 stacked gamedirs total). What
-goes in any of these folders is entirely up to you, same as CloudyDoom's
-`WAD_DIR`:
+The base gamedir (`BASE_GAMEDIR`, `id1/` by default) is always loaded.
+`GAMEDIRS` stacks any number of further gamedirs on top, in order (e.g.
+`GAMEDIRS="hipnotic mymappack"` for Scourge of Armagon plus a custom map
+pack over it, or `GAMEDIRS="portals"` for Hexen II's own mission pack) - a
+mission pack, a total conversion, a QuakeC mod, anything that follows
+Quake's own `-game <gamedir>` convention (fteqw supports up to 8 stacked
+gamedirs total). What goes in any of these folders is entirely up to you,
+same as CloudyDoom's `WAD_DIR`:
 
 - Your own copy of `pak0.pak`/`pak1.pak` (from the original CD, Steam, GOG,
-  etc.), copied out of your install's `id1/` folder, for the full game.
-- The freely-redistributable shareware `pak0.pak` alone, if that's all you
-  have or all you want to offer - works fine, just without episodes 2-4 or
-  deathmatch levels beyond `dm3` (check what's actually in your copy - the
-  exact map/content set has varied across releases).
-- The official mission packs (`hipnotic/`, `rogue/`) or a third-party
-  QuakeC mod's own gamedir, via `GAMEDIRS`.
+  etc.), copied out of your install's base gamedir, for the full game.
+- The freely-redistributable shareware Quake `pak0.pak` alone, if that's
+  all you have or all you want to offer (stock Quake only - Hexen II has
+  no equivalent shareware release) - works fine, just without episodes 2-4
+  or deathmatch levels beyond `dm3` (check what's actually in your copy -
+  the exact map/content set has varied across releases).
+- The official mission packs (`hipnotic/`, `rogue/`, or Hexen II's
+  `portals/`) or a third-party QuakeC mod's own gamedir, via `GAMEDIRS`.
 
 Whatever you use, it's your own responsibility to have the rights to serve
 it to whoever you invite - `PASSWORD` and `SV_PUBLIC=0` just keep it off the

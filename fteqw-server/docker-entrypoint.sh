@@ -48,8 +48,17 @@ link_gamedir() {
     return 1
 }
 
-if ! link_gamedir id1; then
-    echo "WARNING: no id1/ (any case) folder found under PAK_DIR - the server has no base game data and will fail to load a map. See the README's 'Getting paks' section." >&2
+# BASE_GAMEDIR is purely our own pak-volume convention, not an fteqw flag:
+# it's whichever PAK_DIR subfolder gets symlinked in as fteqw's implicit
+# default gamedir (the one always loaded with no "-game" needed) - "id1"
+# for stock Quake/QuakeWorld, or "data1" if you're pointing SERVER_ARGS at
+# a different game (e.g. Hexen II) whose own retail layout calls its base
+# folder something else. This has no bearing on which fteqw flags actually
+# get passed to the engine - that's entirely SERVER_ARGS's job, below.
+BASE_GAMEDIR="${BASE_GAMEDIR:-id1}"
+
+if ! link_gamedir "$BASE_GAMEDIR"; then
+    echo "WARNING: no $BASE_GAMEDIR/ (any case) folder found under PAK_DIR - the server has no base game data and will fail to load a map. See the README's 'Getting paks' section." >&2
 fi
 
 SV_PORT="${SV_PORT:-27500}"
@@ -59,18 +68,6 @@ SV_PORT="${SV_PORT:-27500}"
 # specs/browser.txt in fteqw's own repo ("sv_port_tcp ... listens for tcp
 # connections, including websocket clients").
 SV_PORT_TCP="${SV_PORT_TCP:-27500}"
-
-MAP="${MAP:-dm3}"
-DEATHMATCH="${DEATHMATCH:-1}"
-SERVER_HOSTNAME="${SERVER_HOSTNAME:-CloudyQuake}"
-MAXCLIENTS="${MAXCLIENTS:-16}"
-
-# sv_public 0: don't send heartbeats to the public QW master servers or
-# respond to their queries - this is a private, invite-only game (per the
-# project's intent, unlike a normal public QuakeWorld server), reachable
-# only by people you've given the URL+password to. LAN-local discovery
-# still works fine either way; see specs/hosting.txt's sv_public docs.
-SV_PUBLIC="${SV_PUBLIC:-0}"
 
 # The shared join password - independent of, but typically set to the same
 # value as, the HTTP Basic Auth PASSWORD gating the web client/paks (see
@@ -85,15 +82,16 @@ SV_PUBLIC="${SV_PUBLIC:-0}"
 # required to join.
 PASSWORD="${PASSWORD:-}"
 
-# -game qw is always loaded first, for the baked-in/overridden QuakeWorld
-# gamecode (see the symlink-merge above). GAMEDIRS optionally stacks any
-# number of further gamedirs on top - space-separated, applied in order,
-# e.g. "hipnotic mymappack" for a mission pack plus a custom map pack of
-# your own on top of it. fteqw's own -game handling supports repeating the
-# flag to build a search-path stack of up to 8 total gamedirs (later ones
-# taking priority for same-named files) - see fteqw's
-# engine/common/fs.c/common.h (MAX_GAMES-equivalent: gamepath[8]). Leave
-# GAMEDIRS unset for base id1 + qw only.
+# "-game qw" is always baked in, not something SERVER_ARGS can drop.
+#
+# GAMEDIRS then optionally stacks any number of further gamedirs on top -
+# space-separated, applied in order, e.g. "hipnotic mymappack" for a
+# mission pack plus a custom map pack on top of stock Quake, or "portals"
+# for Hexen II's own Portal of Praevus mission pack. fteqw's own -game
+# handling supports repeating the flag to build a search-path stack of up
+# to 8 total gamedirs (later ones taking priority for same-named files) -
+# see fteqw's engine/common/fs.c/common.h (MAX_GAMES-equivalent:
+# gamepath[8]).
 #
 # A standalone map or small map pack often doesn't need its own gamedir at
 # all: fteqw will auto-download any map a client doesn't already have
@@ -114,18 +112,37 @@ for gd in ${GAMEDIRS:-}; do
     set -- "$@" -game "$gd"
 done
 
+# SERVER_ARGS is a raw, space-separated passthrough of whatever remaining
+# startup switches/cvars fteqw itself actually takes, reaching only
+# fteqw-server - see CLIENT_ARGS (nginx/docker-entrypoint.sh) for the
+# client-side equivalent. Hostname, starting map, deathmatch, maxclients,
+# sv_public, and every other ordinary fteqw session setting deliberately
+# have no named var of their own here and no default beyond fteqw's own -
+# it's not this container's job to babysit settings that don't affect
+# whether the container itself works, and every one added here is one
+# more thing that can drift from whatever fteqw calls it/defaults it to
+# in some future version. Set them the same way you would running fteqw
+# directly, e.g. SERVER_ARGS="+set hostname MyServer +set deathmatch 1
+# -dedicated 16 +set sv_public 0 +map dm3" - see .env.example for a fuller
+# example and fteqw's own specs/hosting.txt and in-engine "help" command
+# for what's available. Also where a different fteqw game/mode goes - e.g.
+# SERVER_ARGS="-hexen2" together with BASE_GAMEDIR=data1 for Hexen II,
+# whose own retail data already ships its own gamecode (see
+# .env.example), so nothing extra needs to be baked in for that case.
+SERVER_ARGS="${SERVER_ARGS:-}"
+
 # chocolate-doom's stdout-buffering bug (see CloudyDoom's doom-server
 # entrypoint) applies just as much here: under Docker, stdout is never a
 # TTY, so C's stdio switches to fully-buffered and fteqw's own logging would
 # otherwise sit in a buffer and never reach `docker logs`.
+# The forced -game/+set flags run before SERVER_ARGS so that anything you
+# put there - including its own +map or +set commands - executes
+# afterward and isn't silently pre-empted by these container-required
+# ones ("+" commands run in the order given, unlike "-" switches - see
+# .env.example's CLIENT_ARGS comment).
+set -f
+set -- "$@" +set sv_port "$SV_PORT" +set sv_port_tcp "$SV_PORT_TCP" +set password "$PASSWORD" $SERVER_ARGS
+set +f
 exec stdbuf -oL -eL /usr/local/bin/fteqw-server \
     -basedir "$BASEDIR" \
-    "$@" \
-    -dedicated "$MAXCLIENTS" \
-    +set sv_port "$SV_PORT" \
-    +set sv_port_tcp "$SV_PORT_TCP" \
-    +set hostname "$SERVER_HOSTNAME" \
-    +set deathmatch "$DEATHMATCH" \
-    +set sv_public "$SV_PUBLIC" \
-    +set password "$PASSWORD" \
-    +map "$MAP"
+    "$@"
