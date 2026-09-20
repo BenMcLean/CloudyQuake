@@ -100,7 +100,7 @@ fteqw build runs in the same mode (see `.env.example`).
 git clone <this repo's URL>
 cd cloudyquake
 cp .env.example .env
-$EDITOR .env   # set CLOUDYQUAKE_WS_URL at minimum, and PASSWORD for a real deployment
+$EDITOR .env   # set WS_URL at minimum, and PASSWORD for a real deployment
 mkdir -p paks/id1 && cp /path/to/your/pak0.pak /path/to/your/pak1.pak paks/id1/   # see "Getting paks" below - data1/ instead of id1/ for Hexen II
 docker compose up -d --build
 ```
@@ -115,7 +115,7 @@ Everything is configured via environment variables at container start, not
 baked into any image - see `.env.example` for the full list with defaults.
 The one you can't skip:
 
-- `CLOUDYQUAKE_WS_URL` - the websocket URL browsers will connect to. Has to
+- `WS_URL` - the websocket URL browsers will connect to. Has to
   be reachable from wherever your players actually are (not just inside the
   docker network). If you're fronting this with a reverse proxy/TLS
   terminator (recommended - see below), point this at that proxy instead of
@@ -294,7 +294,7 @@ Add two Proxy Hosts (NPM's "Hosts → Proxy Hosts → Add Proxy Host"):
      obvious error pointing at NPM as the cause.
    - Request a new SSL certificate here too, force SSL.
 
-Then set `CLOUDYQUAKE_WS_URL=wss://quakeworld.example.com` in `.env` - no
+Then set `WS_URL=wss://quakeworld.example.com` in `.env` - no
 custom port needed, since NPM terminates `443` and forwards internally to
 `fteqw-server`'s `SV_PORT_TCP`.
 

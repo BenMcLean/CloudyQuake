@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-: "${CLOUDYQUAKE_WS_URL:?CLOUDYQUAKE_WS_URL must be set, e.g. wss://quakeworld.example.com}"
+: "${WS_URL:?WS_URL must be set, e.g. wss://quakeworld.example.com}"
 
 # PASSWORD is intentionally optional and not read anywhere in this script -
 # nginx/auth.js reads it straight from the environment at request time (via
@@ -43,18 +43,18 @@ for arg in ${CLIENT_ARGS:-}; do
     CLIENT_ARGS_JSON="${CLIENT_ARGS_JSON}\"$(json_escape "$arg")\""
 done
 set +f
-export CLOUDYQUAKE_CLIENT_ARGS_JSON="${CLIENT_ARGS_JSON}]"
+export CLIENT_ARGS_JSON="${CLIENT_ARGS_JSON}]"
 
 # nativeClientCmd is a convenience field for humans only - site/app.js never
 # reads it. It's the equivalent command line a player running their own
 # native fteqw client (not the browser) would need to join this exact
 # server, connecting straight to fteqw-server's UDP port and bypassing
 # nginx entirely - see the README's "Connecting" section. The host is
-# derived from CLOUDYQUAKE_WS_URL on the assumption its hostname also
+# derived from WS_URL on the assumption its hostname also
 # resolves to fteqw-server's UDP port, which holds for the two-hostname
 # split-domain setup the README recommends, but not for every possible
 # deployment - it's a starting point to edit, not gospel.
-CLOUDYQUAKE_WS_HOST=$(printf '%s' "$CLOUDYQUAKE_WS_URL" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##; s#[:/].*##')
+WS_HOST=$(printf '%s' "$WS_URL" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##; s#[:/].*##')
 # Unlike fteqw-server's own SERVER_ARGS (server-side, potentially including
 # gamecode-mode switches like "-hexen2" - see its docker-entrypoint.sh), a
 # native *client* never executes gamecode, so this only needs "-game" for
@@ -64,10 +64,10 @@ CLOUDYQUAKE_WS_HOST=$(printf '%s' "$CLOUDYQUAKE_WS_URL" | sed -E 's#^[a-zA-Z][a-
 # (or to your own native client's config) - this is a convenience starting
 # point, not gospel, same as the rest of this field - see the README's
 # "Connecting" section.
-CLOUDYQUAKE_GAME_ARGS=""
+GAME_ARGS=""
 for gd in ${GAMEDIRS:-}; do
     gd=$(printf '%s' "$gd" | tr '[:upper:]' '[:lower:]')
-    CLOUDYQUAKE_GAME_ARGS="${CLOUDYQUAKE_GAME_ARGS}-game ${gd} "
+    GAME_ARGS="${GAME_ARGS}-game ${gd} "
 done
 # The real PASSWORD, not a placeholder: this whole field only reaches
 # someone who already authenticated with that exact password (config.json
@@ -77,19 +77,19 @@ done
 # copy-pasting this to set up a native client. Omitted entirely (rather
 # than "+set password \"\"") when PASSWORD is blank, matching
 # site/app.js's own conditional +password logic for the browser client.
-CLOUDYQUAKE_PASSWORD_ARG=""
+PASSWORD_ARG=""
 if [ -n "${PASSWORD:-}" ]; then
-    CLOUDYQUAKE_PASSWORD_ARG="+set password \"${PASSWORD}\" "
+    PASSWORD_ARG="+set password \"${PASSWORD}\" "
 fi
-CLOUDYQUAKE_NATIVE_CMD="fteqw ${CLOUDYQUAKE_GAME_ARGS}${CLOUDYQUAKE_PASSWORD_ARG}+connect ${CLOUDYQUAKE_WS_HOST}:${SV_PORT:-27500}"
-export CLOUDYQUAKE_NATIVE_CMD_JSON=$(json_escape "$CLOUDYQUAKE_NATIVE_CMD")
+NATIVE_CMD="fteqw ${GAME_ARGS}${PASSWORD_ARG}+connect ${WS_HOST}:${SV_PORT:-27500}"
+export NATIVE_CMD_JSON=$(json_escape "$NATIVE_CMD")
 
 # config.base.json holds everything in config.json except "playerName",
 # "password", "gameFiles" and "gamedirs", which nginx/auth.js fills in
 # per-request from the client's own Basic Auth credentials, the PASSWORD
 # env var, and the /paks volume's actual contents respectively - see
 # nginx.conf's "location = /config.json".
-envsubst '${CLOUDYQUAKE_WS_URL} ${CLOUDYQUAKE_CLIENT_ARGS_JSON} ${CLOUDYQUAKE_NATIVE_CMD_JSON}' \
+envsubst '${WS_URL} ${CLIENT_ARGS_JSON} ${NATIVE_CMD_JSON}' \
     < /etc/cloudyquake/config.base.json.template > /etc/cloudyquake/config.base.json
 
 exec nginx -g 'daemon off;'

@@ -12,7 +12,7 @@ services:
     ports:
       - "${WEB_HTTP_PORT:-8080}:8080"
     environment:
-      CLOUDYQUAKE_WS_URL: ${CLOUDYQUAKE_WS_URL:?Set CLOUDYQUAKE_WS_URL to the externally-reachable websocket URL, e.g. wss://quakeworld.example.com}
+      WS_URL: ${WS_URL:?Set WS_URL to the externally-reachable websocket URL, e.g. wss://quakeworld.example.com}
       # Shared password, gating both the web login (and pak downloads) and
       # joining the match itself - see nginx/auth.js and
       # fteqw-server/docker-entrypoint.sh. Optional - leave blank in .env
