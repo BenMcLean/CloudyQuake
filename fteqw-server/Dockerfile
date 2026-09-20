@@ -7,13 +7,31 @@
 # same treatment CloudyDoom gave its own unmodified dedicated server
 # (chocolate-doom, cloned via CHOCOLATE_DOOM_REF), as opposed to doom-wasm
 # (a project-specific fork, which *is* vendored there).
-FROM ubuntu:24.04 AS builder
+
+# GAME picks which game's gamecode gets baked into this image, and therefore
+# which builder stage below actually runs - see docker-entrypoint.sh (which
+# reads the same var at runtime to pick the matching engine-mode flag) and
+# GAME in .env.example. "qw" (default) needs fteqw's own QuakeC gamecode
+# (gamecode-qw below); "quake2" needs a natively-compiled Quake II gamecode
+# library that fteqw itself doesn't provide or build (see gamecode-quake2
+# below) - unlike Hexen II, which needs no build-time gamecode of its own at
+# all (its progs.dat/portals mission pack ship in your own retail pak files -
+# see BASE_GAMEDIR/SERVER_ARGS in .env.example), so it has no gamecode-*
+# stage here and just keeps using GAME=qw's engine build.
+ARG GAME=qw
 
 # fteqw tags releases as dated snapshots (e.g. "2025-09-27") rather than
 # semver - pinned here instead of "master" so a rebuild doesn't silently
 # pick up unreviewed upstream changes. Check
 # https://github.com/fte-team/fteqw/tags for newer ones.
 ARG FTEQW_REF=2025-09-27
+
+# --- engine-builder: the native dedicated server binary, same regardless of
+# GAME - fteqw's sv-rel target links no gamecode of its own, whichever game
+# actually gets played is entirely down to what gamecode ends up on disk at
+# runtime (baked in below, or from your own pak volume for Hexen II).
+FROM ubuntu:24.04 AS engine-builder
+ARG FTEQW_REF
 
 # Matches the linux build dependencies fteqw's own build_setup.sh documents
 # for its "Build for Linux x86_64?" option, plus its generic prerequisites
@@ -32,12 +50,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN git clone --depth 1 --branch "$FTEQW_REF" https://github.com/fte-team/fteqw.git /src
 
 WORKDIR /src/engine
-# sv-rel: the dedicated QuakeWorld/NetQuake server (no video/audio code
-#   linked in at all - see engine/Makefile's SV_OBJS, which excludes every
-#   GL/client object file).
-# qcc-rel: fteqcc, the QuakeC compiler - used below (build time only) to
-#   compile quakec/basemod into gamecode, so the image ships with a working
-#   qwprogs.dat without depending on a separately-sourced file.
+# sv-rel: the dedicated QuakeWorld/NetQuake/Quake II server (no video/audio
+#   code linked in at all - see engine/Makefile's SV_OBJS, which excludes
+#   every GL/client object file). Quake II support is compiled in
+#   unconditionally by this target; whether it's actually usable at runtime
+#   depends only on whether Quake II gamecode is present on disk (see
+#   SVQ2_GetGameAPI's dlopen search - gamecode-quake2 below bakes one in at
+#   one of the paths it checks) - nothing else here needs to change per
+#   GAME.
+# qcc-rel: fteqcc, the QuakeC compiler - used below (build time only, qw
+#   only) to compile quakec/basemod into gamecode, so the image ships with a
+#   working qwprogs.dat without depending on a separately-sourced file.
 RUN make FTE_TARGET=linux64 makelibs \
     && make -j"$(nproc)" FTE_TARGET=linux64 sv-rel qcc-rel
 
@@ -50,32 +73,108 @@ RUN SV_BIN="$(find release -maxdepth 1 -type f -name '*-sv*' | head -n1)" \
     && test -n "$SV_BIN" \
     && cp "$SV_BIN" release/fteqw-server-bin
 
-# Compile the standard QuakeWorld gamecode. quakec/basemod is fteqw's own
-# id1-equivalent QuakeC reimplementation (see its own basemod.txt for
-# license terms) - openly licensed, unlike the retail map/model/texture
-# data in id1/pak0.pak+pak1.pak, which is never baked into this image and
-# always comes from your own volume mount instead (see docker-compose.yml).
+# Every gamecode-* stage below stages its output under /out/, laid out as an
+# exact mirror of the final image's own filesystem (e.g.
+# /out/fte/qw/qwprogs.dat, /out/usr/local/bin/libgame_baseq2.so) - so the
+# final stage can copy whichever one GAME selected with a single
+# `COPY --from=gamecode /out/ /`, unconditionally, regardless of which of
+# these actually ran. Keeps the final stage itself free of any per-GAME
+# branching, and makes adding a future GAME value (another engine mode
+# needing its own baked gamecode) a matter of adding one more stage here,
+# nothing else.
+
+# --- gamecode-qw: fteqw's own id1-equivalent QuakeC reimplementation
+# (quakec/basemod, see its own basemod.txt for license terms) - openly
+# licensed, unlike the retail map/model/texture data in
+# id1/pak0.pak+pak1.pak, which is never baked into this image and always
+# comes from your own volume mount instead (see docker-compose.yml).
 # progs.src's default #pragma PROGS_DAT (no NETQUAKE/FTE #define set) names
-# the output qwprogs.dat.
+# the output qwprogs.dat. qw/ is fteqw's own always-loaded gamedir for this
+# mode (see docker-entrypoint.sh's "-game qw"), so the output lands where
+# that gamedir will actually be searched from.
+FROM engine-builder AS gamecode-qw
 WORKDIR /src/quakec/basemod
 RUN QCC_BIN="$(find /src/engine/release -maxdepth 1 -type f -name 'fteqcc*' -executable | head -n1)" \
     && test -n "$QCC_BIN" \
     && "$QCC_BIN" progs.src
+RUN mkdir -p /out/fte/qw \
+    && cp qwprogs.dat /out/fte/qw/qwprogs.dat
+
+# --- gamecode-quake2: unlike QuakeWorld/Hexen II (both plain QuakeC, run by
+# fteqw's own VM), Quake II's gamecode is a natively-compiled shared library
+# using id Tech 2's game DLL ABI, which fteqw dlopen()s at runtime
+# (engine/server/svq2_game.c's SVQ2_GetGameAPI) rather than interpreting
+# itself - fteqw ships none of its own ("FTE doesn't provide gamecode.
+# Borrow someone else's." - svq2_game.c's own comment), so one has to be
+# built from elsewhere. yquake2 (github.com/yquake2/yquake2, GPLv2, the
+# same license as id Software's original Quake II source release) is used
+# here purely for its src/game/ - the "baseq2/game.so" target below builds
+# only that (GAME_OBJS in yquake2's Makefile: src/common/shared/ + src/game/
+# - no SDL2/GL/OpenAL, none of yquake2's own client/server/renderer code),
+# not yquake2's own client or server, which this project has no use for.
+#
+# SVQ2_GetGameAPI's dlopen search checks several locations; the one used
+# here - "<binarydir>/libgame_<gamedir>.ext" - is the only one that's both
+# unconditional (others require com_gamedirnativecode, off by default) and
+# outside the gamedir itself, which matters because the gamedir
+# (BASE_GAMEDIR, "baseq2" for Quake II) is a runtime symlink straight into
+# your own read-only PAK_DIR volume (see docker-entrypoint.sh's
+# link_gamedir) - anything baked in *inside* it would just be hidden once
+# that symlink goes up. <binarydir> is wherever fteqw-server-bin itself
+# lives (/usr/local/bin, set below), so the filename is fixed regardless of
+# what BASE_GAMEDIR is actually set to in a given deployment... except that
+# it isn't: the search embeds the active gamedir's own name
+# ("libgame_baseq2.so"), so this bakes in the assumption BASE_GAMEDIR=baseq2
+# (Quake II's conventional retail base gamedir - see .env.example) - a
+# different BASE_GAMEDIR value with GAME=quake2 would need this filename to
+# match it instead.
+FROM ubuntu:24.04 AS gamecode-quake2
+
+# yquake2 tags stable releases as QUAKE2_<major>_<minor> (not semver either) -
+# pinned instead of "master" for the same reason as FTEQW_REF above. Check
+# https://github.com/yquake2/yquake2/tags for newer ones.
+ARG YQUAKE2_REF=QUAKE2_8_70
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates git build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 --branch "$YQUAKE2_REF" https://github.com/yquake2/yquake2.git /src-yq2
+
+WORKDIR /src-yq2
+RUN make game
+
+RUN mkdir -p /out/usr/local/bin \
+    && cp release/baseq2/game.so /out/usr/local/bin/libgame_baseq2.so
+
+# --- gamecode: picks whichever gamecode-* stage above matches GAME. Docker
+# resolves this FROM at build time from the ARG, so only the matching
+# stage's RUN steps (and its own dependency chain) actually execute - the
+# other one is never built at all, keeping e.g. a plain GAME=qw build exactly
+# as fast/small as before this file grew a second gamecode stage.
+FROM gamecode-${GAME} AS gamecode
 
 FROM ubuntu:24.04
 
-COPY --from=builder /src/engine/release/fteqw-server-bin /usr/local/bin/fteqw-server
+COPY --from=engine-builder /src/engine/release/fteqw-server-bin /usr/local/bin/fteqw-server
 RUN chmod +x /usr/local/bin/fteqw-server
 
-# qw/ holds QuakeWorld-specific gamecode, baked in at build time since it's
-# built from fteqw's own openly-licensed quakec/basemod source above (not
-# copyrighted game data). id1/ and any other gamedir (hipnotic/, rogue/, a
-# mod's own folder) are never baked in here - docker-entrypoint.sh symlinks
-# them in from the PAK_DIR volume at container start (see its comment, and
-# /fte-data in docker-compose.yml), overriding this qw/ too if your own
-# volume happens to provide one (e.g. from a full retail install).
-RUN mkdir -p /fte/qw
-COPY --from=builder /src/quakec/basemod/qwprogs.dat /fte/qw/qwprogs.dat
+# -basedir itself (see docker-entrypoint.sh's BASEDIR) has to exist before
+# any gamedir can be symlinked into it - unconditional here since not every
+# gamecode-* stage above happens to create it as a side effect of its own
+# output (gamecode-qw's /out/fte/qw/ does; gamecode-quake2's
+# /out/usr/local/bin/ doesn't).
+RUN mkdir -p /fte
+
+# See the gamecode-* stages above for what actually lands where - qw/'s own
+# baked-in QuakeC gamecode for GAME=qw, or a baked-in libgame_baseq2.so
+# (found by fteqw's own dlopen search, see gamecode-quake2 above) for
+# GAME=quake2. Either way, id1/ (or baseq2/, or any other gamedir - GAMEDIRS,
+# a full retail install, ...) is never baked in here - docker-entrypoint.sh
+# symlinks it in from the PAK_DIR volume at container start (see its
+# comment, and /fte-data in docker-compose.yml), overriding qw/ too if your
+# own volume happens to provide one (e.g. from a full retail install).
+COPY --from=gamecode /out/ /
 
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh

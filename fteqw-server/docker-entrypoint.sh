@@ -82,8 +82,40 @@ SV_PORT_TCP="${SV_PORT_TCP:-27500}"
 # required to join.
 PASSWORD="${PASSWORD:-}"
 
-# "-game qw" is always baked in, not something SERVER_ARGS can drop.
+# GAME picks which game this server actually runs, and therefore which
+# engine-mode flag gets forced on here - not something SERVER_ARGS can drop.
+# Also read at build time (see Dockerfile's ARG GAME) to decide which
+# gamecode gets baked into this image, so it has to agree with whatever this
+# image was actually built with (an image built GAME=qw has no Quake II
+# gamecode on disk to dlopen, and vice versa - see .env.example).
 #
+# "qw" (default): QuakeWorld - "-game qw" is fteqw's own always-loaded
+#   gamedir for it (QuakeWorld was never part of any retail Quake release,
+#   so there's no equivalent implicit default the way id1/baseq2 are for
+#   NetQuake/Quake II). This is also what Hexen II runs under: it needs no
+#   gamecode of its own baked in (its progs.dat/portals mission pack come
+#   entirely from your own retail pak files - see BASE_GAMEDIR above), just
+#   SERVER_ARGS=-hexen2 layered on top of this same "-game qw" - matches
+#   fteqw's own description of Hexen II as "just... a glorified mod" of the
+#   same QuakeC VM/protocol.
+# "quake2": Quake II - "-quake2" switches the engine's protocol/gamecode
+#   loading to id Tech 2 mode, whose own retail layout already treats
+#   baseq2/ as its implicit default gamedir (no explicit "-game" needed, same
+#   as Hexen II's data1/). See the README's Quake II section.
+GAME="${GAME:-qw}"
+case "$GAME" in
+    qw)
+        set -- -game qw
+        ;;
+    quake2)
+        set -- -quake2
+        ;;
+    *)
+        echo "WARNING: unknown GAME '$GAME' - falling back to qw" >&2
+        set -- -game qw
+        ;;
+esac
+
 # GAMEDIRS then optionally stacks any number of further gamedirs on top -
 # space-separated, applied in order, e.g. "hipnotic mymappack" for a
 # mission pack plus a custom map pack on top of stock Quake, or "portals"
@@ -102,7 +134,6 @@ PASSWORD="${PASSWORD:-}"
 # also works, with no config here and no pak/nginx involvement at all -
 # GAMEDIRS is for when you specifically want a map pack's own gamedir
 # (e.g. it ships alongside its own textures/sounds as a pak).
-set -- -game qw
 for gd in ${GAMEDIRS:-}; do
     gd=$(printf '%s' "$gd" | tr '[:upper:]' '[:lower:]')
     if ! link_gamedir "$gd"; then

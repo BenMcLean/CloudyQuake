@@ -62,12 +62,24 @@ services:
   fteqw-server:
     build:
       context: ./fteqw-server
+      args:
+        # Which gamecode builder stage actually runs at build time - see
+        # fteqw-server/Dockerfile. Must agree with the GAME below (a
+        # GAME=quake2 image has no QuakeWorld gamecode baked in, and vice
+        # versa), so it's set once here from the same .env var as the
+        # runtime one, same convention as GAMEDIRS/BASE_GAMEDIR.
+        GAME: ${GAME:-qw}
     ports:
       - "${SV_PORT:-27500}:${SV_PORT:-27500}/udp"
       - "${SV_PORT_TCP:-27500}:${SV_PORT_TCP:-27500}/tcp"
     environment:
       SV_PORT: ${SV_PORT:-27500}
       SV_PORT_TCP: ${SV_PORT_TCP:-27500}
+      # Which game this server actually runs, and therefore which
+      # engine-mode flag docker-entrypoint.sh forces on - see
+      # .env.example and docker-entrypoint.sh. Must match what this image
+      # was actually built with (see the build arg above).
+      GAME: ${GAME:-qw}
       # Same shared secret as nginx's PASSWORD above - this is what
       # actually gates joining the game itself (HTTP Basic Auth can't reach
       # the WebSocket handshake - see nginx/auth.js's file-level comment).

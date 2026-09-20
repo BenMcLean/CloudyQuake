@@ -59,40 +59,78 @@ Two services, three published ports:
 
 ## Supported games
 
+`GAME` (default `qw`) picks which game the `fteqw-server` image is actually
+*built* for, as well as which engine-mode flag `docker-entrypoint.sh` forces
+on at startup - see `fteqw-server/Dockerfile`. Changing it needs a rebuild
+(`docker compose up -d --build`), not just a restart, since it changes what
+gamecode gets compiled into the image.
+
 `SERVER_ARGS` is a raw passthrough of fteqw's own dedicated-server command
-line switches/cvars, so anything fteqw itself supports via its own flags
-is fair game, not just what this README happens to call out - the one
-exception is `-game qw`, which is always baked in rather than living in
-`SERVER_ARGS`.
+line switches/cvars on top of whatever `GAME` already forced on, so
+anything fteqw itself supports via its own flags is fair game, not just
+what this README happens to call out - the one exception is the
+engine-mode switch itself (`-game qw` or `-quake2`), which `GAME` always
+forces on rather than something you set in `SERVER_ARGS`.
 
 `BASE_GAMEDIR` (default `id1`) is the one CloudyQuake-specific concept
-alongside it - purely which `PAK_DIR` subfolder gets treated as fteqw's
-implicit always-loaded gamedir, matching whatever real retail install
-layout the game you're pointing `SERVER_ARGS` at actually uses. Neither
-var maps the other for you; they just need to agree, same as they would
-running fteqw natively outside Docker.
+alongside these two - purely which `PAK_DIR` subfolder gets treated as
+fteqw's implicit always-loaded gamedir, matching whatever real retail
+install layout the game you're running actually uses. None of `GAME`,
+`SERVER_ARGS`, or `BASE_GAMEDIR` maps the others for you; they just need to
+agree, same as they would running fteqw natively outside Docker.
 
-**QuakeWorld** (the default: `BASE_GAMEDIR=id1`, `SERVER_ARGS` unset) -
-the one game this stack bakes gamecode for, compiled from fteqw's own
-openly-licensed `quakec/basemod` into the `fteqw-server` image at build
-time (see [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers)).
+**QuakeWorld** (the default: `GAME=qw`, `BASE_GAMEDIR=id1`, `SERVER_ARGS`
+unset) - the one game this stack bakes gamecode for, compiled from fteqw's
+own openly-licensed `quakec/basemod` into the `fteqw-server` image at
+build time (see [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers)).
 QuakeWorld was never part of any retail Quake release, so there's nothing
 to source this gamecode from other than compiling it - everything else
 below instead comes entirely from your own pak volume, same as any
 `GAMEDIRS` entry.
 
-**Hexen II** (`SERVER_ARGS=-hexen2`, `BASE_GAMEDIR=data1`) - fteqw's own
-docs describe this as FTE treating Hexen II as "a glorified mod" of the
-exact same QuakeC VM and QuakeWorld-style netcode/protocol, just against a
-different base gamedir and a flag telling the engine which game's
-rules/defaults to use - so it needs no separate build or fork here either.
-Its gamecode comes entirely from your own pak volume: the base game's
+**Hexen II** (`GAME=qw`, `SERVER_ARGS=-hexen2`, `BASE_GAMEDIR=data1`) -
+fteqw's own docs describe this as FTE treating Hexen II as "a glorified
+mod" of the exact same QuakeC VM and QuakeWorld-style netcode/protocol,
+just against a different base gamedir and a flag telling the engine which
+game's rules/defaults to use - so it needs no separate build or fork here
+either, and runs under the same `GAME=qw` image as stock QuakeWorld. Its
+gamecode comes entirely from your own pak volume: the base game's
 `progs.dat` ships packed inside retail `pak0.pak`/`pak1.pak`, and the
 Portal of Praevus mission pack (`GAMEDIRS=portals`) ships an improved one
 as a loose file - both get picked up automatically, nothing baked into the
 image. See [Getting paks](#getting-paks) below for the exact layout.
 Remember to add `-hexen2` to `CLIENT_ARGS` too, so the browser client's own
 fteqw build runs in the same mode (see `.env.example`).
+
+**Quake II** (`GAME=quake2`, `BASE_GAMEDIR=baseq2`) - supported via
+[Yamagi Quake II](https://github.com/yquake2/yquake2) (GPLv2, pinned to a
+fixed release tag in `fteqw-server/Dockerfile`): unlike QuakeWorld/Hexen
+II's QuakeC, Quake II's gamecode is a natively-compiled shared library (id
+Tech 2's game DLL ABI) that fteqw `dlopen()`s at runtime rather than
+bundling itself, so `GAME=quake2` builds one from yquake2's `src/game/` -
+just the gamecode, not its client/server/renderer, which this project has
+no use for - and bakes it into the `fteqw-server` image the same general
+way `quakec/basemod` is baked in for QuakeWorld. `BASE_GAMEDIR=baseq2`
+matters here beyond the usual pak-volume convention: the baked gamecode
+library's own filename embeds that exact gamedir name, so it has to match.
+Remember to add `-quake2` to `CLIENT_ARGS` too, same as Hexen II's
+`-hexen2` above.
+
+Quake II ships player models/skins (`players/`) as **loose files**, not
+packed into any pak, unlike QuakeWorld/Hexen II - copy that folder over
+as-is alongside the paks (see [Getting paks](#getting-paks)) or players
+will spawn with missing models. Don't bother copying
+`gamex86.dll`/`gamex86_64.dll` if your install has one - that's the
+original Windows native gamecode DLL, irrelevant here since `GAME=quake2`
+builds and bakes in its own Linux one.
+
+Quake III is **not supported yet**. fteqw does have Quake III support, but
+as a separate optional plugin, and Quake III's gamecode is split into three
+modules (`game`, plus client-side `cgame`/`ui`) rather than Quake II's
+server-only one - a similar general shape (dlopen'able native or QVM
+bytecode gamecode, GPLv2 source available from `ioquake3`) but with enough
+extra moving parts that it's being left for later rather than folded into
+this pass.
 
 ## Quick start
 
@@ -141,7 +179,8 @@ of the file for exact names, then delete whatever you don't need.
 You need `id1/pak0.pak` (and, for the full game rather than just the
 shareware episode, `id1/pak1.pak`) inside `paks/` (or wherever `PAK_DIR`
 points) before the game will actually run - or `data1/pak0.pak`/`pak1.pak`
-if you've set `BASE_GAMEDIR=data1` for Hexen II (see
+if you've set `BASE_GAMEDIR=data1` for Hexen II, or `baseq2/pak0.pak` for
+`GAME=quake2`/`BASE_GAMEDIR=baseq2` (see
 [Supported games](#supported-games)). Unlike CloudyDoom's dedicated
 server, **`fteqw-server` does load this data itself** - see
 [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers) -
@@ -166,6 +205,20 @@ paks/
   data1/pak0.pak       <- required, the base game
   data1/pak1.pak       <- optional, full registered game instead of shareware
   portals/pak3.pak     <- the Portal of Praevus mission pack (GAMEDIRS=portals)
+```
+
+...or for Quake II (`GAME=quake2`, `BASE_GAMEDIR=baseq2` - see
+[Supported games](#supported-games)):
+
+```
+paks/
+  baseq2/pak0.pak      <- required, the base game
+  baseq2/pak1.pak      <- required, day-one patch data merged into retail/GOG/Steam copies
+  baseq2/pak2.pak      <- required, same as above
+  baseq2/players/      <- required, player models/skins - Quake II ships these as loose
+                          files (not packed into any pak), unlike QuakeWorld/Hexen II,
+                          so this folder needs copying over as-is from your own install
+  baseq2/maps/          <- optional, if any loose (unpacked) map files exist outside the paks
 ```
 
 Gamedir folder names and `*.pak`/`*.pk3` filenames inside `PAK_DIR` are
