@@ -116,18 +116,15 @@ RUN mkdir -p /out/fte/qw \
 # SVQ2_GetGameAPI's dlopen search checks several locations; the one used
 # here - "<binarydir>/libgame_<gamedir>.ext" - is the only one that's both
 # unconditional (others require com_gamedirnativecode, off by default) and
-# outside the gamedir itself, which matters because the gamedir
-# (BASE_GAMEDIR, "baseq2" for Quake II) is a runtime symlink straight into
-# your own read-only PAK_DIR volume (see docker-entrypoint.sh's
-# link_gamedir) - anything baked in *inside* it would just be hidden once
-# that symlink goes up. <binarydir> is wherever fteqw-server-bin itself
-# lives (/usr/local/bin, set below), so the filename is fixed regardless of
-# what BASE_GAMEDIR is actually set to in a given deployment... except that
-# it isn't: the search embeds the active gamedir's own name
-# ("libgame_baseq2.so"), so this bakes in the assumption BASE_GAMEDIR=baseq2
-# (Quake II's conventional retail base gamedir - see .env.example) - a
-# different BASE_GAMEDIR value with GAME=quake2 would need this filename to
-# match it instead.
+# outside the gamedir itself, which matters because gamedirs (BASE_GAMEDIR,
+# and each of GAMEDIRS below) are runtime symlinks straight into your own
+# read-only PAK_DIR volume (see docker-entrypoint.sh's link_gamedir) -
+# anything baked in *inside* one would just be hidden once that symlink goes
+# up. <binarydir> is wherever fteqw-server-bin itself lives (/usr/local/bin,
+# set below), so each library's own filename is what ties it to a specific
+# gamedir name ("libgame_baseq2.so", "libgame_rogue.so", ...) - matching
+# BASE_GAMEDIR/GAMEDIRS is on you, same as it always is for pak-volume
+# folder names (see .env.example).
 FROM ubuntu:24.04 AS gamecode-quake2
 
 # yquake2 tags stable releases as QUAKE2_<major>_<minor> (not semver either) -
@@ -135,17 +132,76 @@ FROM ubuntu:24.04 AS gamecode-quake2
 # https://github.com/yquake2/yquake2/tags for newer ones.
 ARG YQUAKE2_REF=QUAKE2_8_70
 
+# The three official id Software expansions/mods, each maintained by the
+# yquake2 org as its own from-scratch GPLv2 reimplementation of just that
+# gamecode (github.com/yquake2/rogue|xatrix|ctf) - same "no client/renderer,
+# just the game library" shape as yquake2/yquake2 itself, and each tags
+# releases as <NAME>_<major>_<minor>. These are ADDITIONAL gamedirs
+# (GAMEDIRS=rogue/xatrix/ctf on top of BASE_GAMEDIR=baseq2 - see
+# .env.example), not alternatives to baseq2's own gamecode above, so all
+# three get built unconditionally here rather than gated behind their own
+# ARGs - each takes a few seconds and needs nothing beyond git/gcc/make, and
+# whether they actually end up used at runtime is GAMEDIRS's call, not a
+# build-time one.
+ARG ROGUE_REF=ROGUE_2_16
+ARG XATRIX_REF=XATRIX_2_17
+ARG CTF_REF=CTF_1_13
+
+# Action Quake 2 ("action") - a third-party multiplayer mod, not an id
+# Software expansion, but still just gamecode source in the same standalone
+# shape as the three above (github.com/aq2-tng/aq2-tng: real preserved CVS
+# history from the mod's original 2003-2004 development, not a decompile -
+# cited by name as "Action Quake Libraries" by AQtion, the actively
+# maintained continuation of the mod at github.com/actionquake/distrib,
+# which documents its own GPLv2 compliance with id's Quake II source terms).
+# No tagged releases exist, so this one's pinned to an exact commit instead
+# (see the fetch/checkout below - aq2-tng's Makefile has no plain "game"
+# target either, just its default one, and names the output
+# "game<arch>.so" rather than "game.so").
+ARG AQ2TNG_REF=472459e5ebf7955588d57c9d89216b1c134d5fa5
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates git build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone --depth 1 --branch "$YQUAKE2_REF" https://github.com/yquake2/yquake2.git /src-yq2
+RUN git clone --depth 1 --branch "$ROGUE_REF" https://github.com/yquake2/rogue.git /src-rogue
+RUN git clone --depth 1 --branch "$XATRIX_REF" https://github.com/yquake2/xatrix.git /src-xatrix
+RUN git clone --depth 1 --branch "$CTF_REF" https://github.com/yquake2/ctf.git /src-ctf
+RUN mkdir /src-aq2tng && cd /src-aq2tng \
+    && git init -q \
+    && git remote add origin https://github.com/aq2-tng/aq2-tng.git \
+    && git fetch --depth 1 origin "$AQ2TNG_REF" \
+    && git checkout -q FETCH_HEAD
+
+RUN mkdir -p /out/usr/local/bin
 
 WORKDIR /src-yq2
-RUN make game
-
-RUN mkdir -p /out/usr/local/bin \
+RUN make game \
     && cp release/baseq2/game.so /out/usr/local/bin/libgame_baseq2.so
+
+# rogue/xatrix/ctf's own Makefiles - unlike the main engine repo's, which
+# needs "make game" specifically - build via their default "all" target
+# (plain "make"), straight to release/game.so (no per-gamedir subfolder,
+# since each repo only ever builds the one mod it's named for).
+WORKDIR /src-rogue
+RUN make \
+    && cp release/game.so /out/usr/local/bin/libgame_rogue.so
+
+WORKDIR /src-xatrix
+RUN make \
+    && cp release/game.so /out/usr/local/bin/libgame_xatrix.so
+
+WORKDIR /src-ctf
+RUN make \
+    && cp release/game.so /out/usr/local/bin/libgame_ctf.so
+
+# aq2-tng builds straight in its source/ dir (no BINDIR/release split the
+# other repos use) and names its own output "game<arch>.so" - x86_64 here,
+# matching FTE_TARGET=linux64 above.
+WORKDIR /src-aq2tng/source
+RUN make \
+    && cp gamex86_64.so /out/usr/local/bin/libgame_action.so
 
 # --- gamecode: picks whichever gamecode-* stage above matches GAME. Docker
 # resolves this FROM at build time from the ARG, so only the matching

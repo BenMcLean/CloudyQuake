@@ -79,6 +79,8 @@ install layout the game you're running actually uses. None of `GAME`,
 `SERVER_ARGS`, or `BASE_GAMEDIR` maps the others for you; they just need to
 agree, same as they would running fteqw natively outside Docker.
 
+### Quake (1996)
+
 **QuakeWorld** (the default: `GAME=qw`, `BASE_GAMEDIR=id1`, `SERVER_ARGS`
 unset) - the one game this stack bakes gamecode for, compiled from fteqw's
 own openly-licensed `quakec/basemod` into the `fteqw-server` image at
@@ -88,25 +90,30 @@ to source this gamecode from other than compiling it - everything else
 below instead comes entirely from your own pak volume, same as any
 `GAMEDIRS` entry.
 
-**Hexen II** (`GAME=qw`, `SERVER_ARGS=-hexen2`, `BASE_GAMEDIR=data1`) -
-fteqw's own docs describe this as FTE treating Hexen II as "a glorified
-mod" of the exact same QuakeC VM and QuakeWorld-style netcode/protocol,
-just against a different base gamedir and a flag telling the engine which
-game's rules/defaults to use - so it needs no separate build or fork here
-either, and runs under the same `GAME=qw` image as stock QuakeWorld. Its
-gamecode comes entirely from your own pak volume: the base game's
-`progs.dat` ships packed inside retail `pak0.pak`/`pak1.pak`, and the
-Portal of Praevus mission pack (`GAMEDIRS=portals`) ships an improved one
-as a loose file - both get picked up automatically, nothing baked into the
-image. See [Getting paks](#getting-paks) below for the exact layout.
-Remember to add `-hexen2` to `CLIENT_ARGS` too, so the browser client's own
-fteqw build runs in the same mode (see `.env.example`).
+#### Hexen II (1997)
 
-**Quake II** (`GAME=quake2`, `BASE_GAMEDIR=baseq2`) - supported via
+fteqw's own docs describe treating Hexen II as "a glorified mod" of the exact same
+QuakeC VM and QuakeWorld-style netcode/protocol, just against a different
+base gamedir
+(`GAME=qw`, `SERVER_ARGS=-hexen2`, `BASE_GAMEDIR=data1`) and a flag telling
+the engine which game's rules/defaults to use - so it needs no separate
+build or fork here either, and runs under the same `GAME=qw` image as
+stock QuakeWorld. Its gamecode comes entirely from your own pak volume:
+the base game's `progs.dat` ships packed inside retail
+`pak0.pak`/`pak1.pak`, and the Portal of Praevus mission pack
+(`GAMEDIRS=portals`) ships an improved one as a loose file - both get
+picked up automatically, nothing baked into the image. See
+[Getting paks](#getting-paks) below for the exact layout. Remember to add
+`-hexen2` to `CLIENT_ARGS` too, so the browser client's own fteqw build
+runs in the same mode (see `.env.example`).
+
+### Quake II (1997)
+
+The base game (`GAME=quake2`, `BASE_GAMEDIR=baseq2`) is supported via
 [Yamagi Quake II](https://github.com/yquake2/yquake2) (GPLv2, pinned to a
 fixed release tag in `fteqw-server/Dockerfile`): unlike QuakeWorld/Hexen
-II's QuakeC, Quake II's gamecode is a natively-compiled shared library (id
-Tech 2's game DLL ABI) that fteqw `dlopen()`s at runtime rather than
+II's QuakeC, Quake II's gamecode is a natively-compiled shared library
+that fteqw `dlopen()`s at runtime rather than
 bundling itself, so `GAME=quake2` builds one from yquake2's `src/game/` -
 just the gamecode, not its client/server/renderer, which this project has
 no use for - and bakes it into the `fteqw-server` image the same general
@@ -124,13 +131,26 @@ will spawn with missing models. Don't bother copying
 original Windows native gamecode DLL, irrelevant here since `GAME=quake2`
 builds and bakes in its own Linux one.
 
-Quake III is **not supported yet**. fteqw does have Quake III support, but
-as a separate optional plugin, and Quake III's gamecode is split into three
-modules (`game`, plus client-side `cgame`/`ui`) rather than Quake II's
-server-only one - a similar general shape (dlopen'able native or QVM
-bytecode gamecode, GPLv2 source available from `ioquake3`) but with enough
-extra moving parts that it's being left for later rather than folded into
-this pass.
+The following mission packs/mods are supported via `GAMEDIRS`, each a
+natively-compiled gamecode library baked in the same way and built from its
+own maintained open-source repo (same as `baseq2`'s above), not from
+anyone's original closed binary:
+
+| `GAMEDIRS` entry | Mod | Source |
+|---|---|---|
+| `rogue` | Ground Zero (official mission pack) | [`yquake2/rogue`](https://github.com/yquake2/rogue), GPLv2 |
+| `xatrix` | The Reckoning (official mission pack) | [`yquake2/xatrix`](https://github.com/yquake2/xatrix), GPLv2 |
+| `ctf` | Capture the Flag (id Software's official mod) | [`yquake2/ctf`](https://github.com/yquake2/ctf), GPLv2 |
+| `action` | Action Quake 2 | [`aq2-tng/aq2-tng`](https://github.com/aq2-tng/aq2-tng) - the actual gamecode source behind [AQtion](https://github.com/actionquake/distrib), the mod's actively maintained continuation |
+
+Use them the same way as any other `GAMEDIRS` entry (e.g.
+`GAMEDIRS="rogue"`), with the matching pak data in your own `PAK_DIR` (see
+[Getting paks](#getting-paks)) - the gamecode itself needs no extra setup,
+it's already in the image.
+
+### Quake III Arena (1999)
+
+**Not supported yet**. fteqw does have Quake III support, but it is not implemented here yet. Coming soon!
 
 ## Quick start
 
@@ -219,6 +239,12 @@ paks/
                           files (not packed into any pak), unlike QuakeWorld/Hexen II,
                           so this folder needs copying over as-is from your own install
   baseq2/maps/          <- optional, if any loose (unpacked) map files exist outside the paks
+  rogue/pak0.pak       <- Ground Zero mission pack (GAMEDIRS=rogue) - gamecode already
+                          baked in, see Supported games
+  xatrix/pak0.pak      <- The Reckoning mission pack (GAMEDIRS=xatrix) - same
+  ctf/pak0.pak         <- Capture the Flag (GAMEDIRS=ctf) - same
+  action/pak0.pak      <- Action Quake 2 (GAMEDIRS=action) - same, plus its own
+                          loose players/ skins the same way baseq2 has
 ```
 
 Gamedir folder names and `*.pak`/`*.pk3` filenames inside `PAK_DIR` are
