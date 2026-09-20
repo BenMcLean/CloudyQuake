@@ -129,13 +129,22 @@ fetch("config.json", { cache: "no-store" })
         // switch to CLIENT_ARGS here too, same as a native client would
         // need it. "-"-prefixed switches are parsed by fteqw up front
         // regardless of where they fall in argv (unlike "+" commands,
-        // which run in sequence), so appending clientArgs after +connect
-        // here is fine either way.
+        // which run in the order given), so clientArgs's own position
+        // relative to +connect doesn't matter for those - but nameArgs and
+        // passArgs are "+" commands, and DO need to run first: they set
+        // userinfo (name/password) that the connection handshake itself
+        // reads, and unlike QuakeWorld's more forgiving multi-round-trip
+        // handshake, Quake II's client sends userinfo essentially
+        // immediately once connected, with no later chance to correct it -
+        // queuing +connect first left it racing a +name that hadn't run
+        // yet, silently landing new Q2 players as "unnamed" (fteqw's own
+        // engine-side fallback for an empty name) even though the exact
+        // same ordering never visibly broke QuakeWorld.
         Module.arguments = gameArgs
-            .concat(["+connect", config.wsUrl])
+            .concat(Array.isArray(config.clientArgs) ? config.clientArgs : [])
             .concat(nameArgs)
             .concat(passArgs)
-            .concat(Array.isArray(config.clientArgs) ? config.clientArgs : []);
+            .concat(["+connect", config.wsUrl]);
 
         setStatusText("Downloading game data...");
         loadEngine();

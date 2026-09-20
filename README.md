@@ -120,8 +120,9 @@ no use for - and bakes it into the `fteqw-server` image the same general
 way `quakec/basemod` is baked in for QuakeWorld. `BASE_GAMEDIR=baseq2`
 matters here beyond the usual pak-volume convention: the baked gamecode
 library's own filename embeds that exact gamedir name, so it has to match.
-Remember to add `-quake2` to `CLIENT_ARGS` too, same as Hexen II's
-`-hexen2` above.
+Unlike Hexen II's `-hexen2`, nothing needs adding to `CLIENT_ARGS` for
+this - the browser client (and any native client) negotiates the protocol
+with the server automatically during connect, confirmed by testing.
 
 Quake II ships player models/skins (`players/`) as **loose files**, not
 packed into any pak, unlike QuakeWorld/Hexen II - copy that folder over
