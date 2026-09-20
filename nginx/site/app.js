@@ -114,8 +114,19 @@ fetch("config.json", { cache: "no-store" })
         // player has authenticated - see nginx/auth.js's config(). Both
         // are simply omitted (rather than sent empty) when there's
         // nothing to set, so fteqw falls back to its own defaults.
-        const nameArgs = config.playerName ? ["+name", config.playerName] : [];
-        const passArgs = config.password ? ["+password", config.password] : [];
+        //
+        // "+set name X"/"+set password X", not bare "+name X"/"+password
+        // X" - matches nginx/docker-entrypoint.sh's own nativeClientCmd
+        // convenience string (see its PASSWORD_ARG), which has always used
+        // the explicit "+set" form. The bare form relies on fteqw falling
+        // an unrecognised startup command through to a same-named cvar,
+        // which turned out not to reliably apply before Quake II's own
+        // connect handshake reads it (surfaced as new players landing as
+        // "unnamed" under GAME=quake2) - "+set" goes through the real,
+        // always-registered "set" command instead, sidestepping that
+        // fallback entirely.
+        const nameArgs = config.playerName ? ["+set", "name", config.playerName] : [];
+        const passArgs = config.password ? ["+set", "password", config.password] : [];
         // config.gamedirs mirrors fteqw-server's own extra "-game GAMEDIRS"
         // stack (see its docker-entrypoint.sh), in the same order - a
         // mission pack/mod/map pack's client-visible assets need this to
@@ -130,16 +141,9 @@ fetch("config.json", { cache: "no-store" })
         // need it. "-"-prefixed switches are parsed by fteqw up front
         // regardless of where they fall in argv (unlike "+" commands,
         // which run in the order given), so clientArgs's own position
-        // relative to +connect doesn't matter for those - but nameArgs and
-        // passArgs are "+" commands, and DO need to run first: they set
-        // userinfo (name/password) that the connection handshake itself
-        // reads, and unlike QuakeWorld's more forgiving multi-round-trip
-        // handshake, Quake II's client sends userinfo essentially
-        // immediately once connected, with no later chance to correct it -
-        // queuing +connect first left it racing a +name that hadn't run
-        // yet, silently landing new Q2 players as "unnamed" (fteqw's own
-        // engine-side fallback for an empty name) even though the exact
-        // same ordering never visibly broke QuakeWorld.
+        // relative to +connect doesn't matter for those - nameArgs/passArgs
+        // are placed before +connect anyway, on general principle (set
+        // userinfo before connecting, not after).
         Module.arguments = gameArgs
             .concat(Array.isArray(config.clientArgs) ? config.clientArgs : [])
             .concat(nameArgs)
