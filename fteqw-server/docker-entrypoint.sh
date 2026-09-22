@@ -162,6 +162,32 @@ done
 # .env.example), so nothing extra needs to be baked in for that case.
 SERVER_ARGS="${SERVER_ARGS:-}"
 
+# Opt-in WebRTC path via a self-hosted broker (the ftemaster service) -
+# see the README's WebRTC section and fteqw's own specs/hosting.txt
+# ("WebRTC / ICE"). The cvar is "sv_port_rtc" (RTC, not RTP - the doc
+# comment above and specs/hosting.txt itself both say "sv_port_rtp", which
+# doesn't exist anywhere in fteqw's own source; confirmed by reading
+# engine/common/net_wins.c's SV_PortRTC_Callback/sv_port_rtc directly).
+# Both blank by default, meaning no change from today's UDP/WSS-only
+# behavior - only appended when actually set, same reasoning as
+# SV_PORT/SV_PORT_TCP/PASSWORD below not forcing an empty "+set" either.
+#
+# SV_PORT_RTC: this server's broker-registered name (e.g. "/myserver") -
+#   clients then "connect /myserver" over ICE/holepunching instead of a
+#   direct UDP/WS(S) address.
+# NET_ICE_BROKER: which broker to register with (fteqw's own
+#   "net_ice_broker" cvar) - point this at your own ftemaster service
+#   (through a reverse proxy - see the README) rather than fteqw's own
+#   frag-net.com default.
+SV_PORT_RTC="${SV_PORT_RTC:-}"
+NET_ICE_BROKER="${NET_ICE_BROKER:-}"
+if [ -n "$SV_PORT_RTC" ]; then
+    set -- "$@" +set sv_port_rtc "$SV_PORT_RTC"
+fi
+if [ -n "$NET_ICE_BROKER" ]; then
+    set -- "$@" +set net_ice_broker "$NET_ICE_BROKER"
+fi
+
 # chocolate-doom's stdout-buffering bug (see CloudyDoom's doom-server
 # entrypoint) applies just as much here: under Docker, stdout is never a
 # TTY, so C's stdio switches to fully-buffered and fteqw's own logging would

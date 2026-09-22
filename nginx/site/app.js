@@ -144,11 +144,19 @@ fetch("config.json", { cache: "no-store" })
         // relative to +connect doesn't matter for those - nameArgs/passArgs
         // are placed before +connect anyway, on general principle (set
         // userinfo before connecting, not after).
+        // brokerConnect/iceBroker are only present when the server opted
+        // into the WebRTC path (SV_PORT_RTP/NET_ICE_BROKER - see the
+        // README's WebRTC section and nginx/docker-entrypoint.sh). When
+        // unset, this is exactly today's "+connect wsUrl" behavior.
+        const brokerArgs = config.iceBroker ? ["+set", "net_ice_broker", config.iceBroker] : [];
+        const connectTarget = config.brokerConnect || config.wsUrl;
+
         Module.arguments = gameArgs
             .concat(Array.isArray(config.clientArgs) ? config.clientArgs : [])
             .concat(nameArgs)
             .concat(passArgs)
-            .concat(["+connect", config.wsUrl]);
+            .concat(brokerArgs)
+            .concat(["+connect", connectTarget]);
 
         setStatusText("Downloading game data...");
         loadEngine();

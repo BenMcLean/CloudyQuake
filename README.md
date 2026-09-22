@@ -34,7 +34,7 @@ in it, it's entirely up to you.
    |  nginx  |   (Basic Auth; serves the web client    |
    +---------+    + pak0.pak/pak1.pak)                 |
         |                                              |
-        | WS                                           | UDP
+        | WS (or WebRTC, opt-in - see below)           | UDP (or WebRTC)
         v                                              |
    +---------------+                                   |
    | fteqw-server  | <---------------------------------+
@@ -42,6 +42,13 @@ in it, it's entirely up to you.
    (real QuakeWorld dedicated server -
     speaks WebSocket natively, no
     separate translator needed)
+          ^
+          | registers/holepunches via (opt-in)
+          v
+   +---------------+
+   |   ftemaster   |   (WebRTC/ICE broker - relays
+   +---------------+    connection metadata only,
+                         never sees game traffic)
 ```
 
 Unlike [CloudyDoom's architecture](https://github.com/BenMcLean/cloudydoom#how-it-works),
@@ -50,12 +57,13 @@ dedicated server has WebSocket support built in (`sv_port_tcp`, see fteqw's
 own `specs/hosting.txt`/`specs/browser.txt`), so `fteqw-server` is directly
 what both browser and native clients connect to.
 
-Two services, three published ports:
+Three services, four published ports:
 
 | Service | What it is | Port |
 |---|---|---|
 | `nginx` | Serves the web client (fteqw's own Emscripten/WebGL port, built from [`fte-team/fteqw`](https://github.com/fte-team/fteqw), fetched at build time - see `FTEQW_REF`) behind HTTP Basic Auth. Also serves your pak files, so the auth gate covers those too. | `WEB_HTTP_PORT` (default `8080`, tcp) |
 | `fteqw-server` | A real, unmodified fteqw dedicated server (built from the same pinned `FTEQW_REF`), running standard QuakeWorld gamecode compiled from fteqw's own openly-licensed `quakec/basemod` at build time. Unlike CloudyDoom's `doom-server`, this one *is* authoritative and actually loads your pak data to run the game - see [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers). | `SV_PORT` (default `27500`, **udp**, native clients) and `SV_PORT_TCP` (default `27500`, tcp, WebSocket/browser clients) |
+| `ftemaster` | Optional WebRTC/ICE broker (fteqw's own `ftemaster` binary, built from the same pinned `FTEQW_REF`) - see [Using WebRTC instead of WSS](#using-webrtc-instead-of-wss). Inert unless you set `SV_PORT_RTC`/`NET_ICE_BROKER`. | `FTEMASTER_PORT` (default `27950`, tcp) |
 
 ## Supported games
 
@@ -148,6 +156,27 @@ Use them the same way as any other `GAMEDIRS` entry (e.g.
 `GAMEDIRS="rogue"`), with the matching pak data in your own `PAK_DIR` (see
 [Getting paks](#getting-paks)) - the gamecode itself needs no extra setup,
 it's already in the image.
+
+**Known issue: player names don't stick.** A player's chosen name (from the
+login prompt, or a native client's own `name`) applies correctly for a
+moment at connect - the server log shows `<name> connected` - but gets
+reset to blank ("unnamed") shortly after, before the player actually
+spawns. Verified with a packet-level capture: the browser client's connect
+request genuinely does include the right name; the server even logs it
+correctly at that instant. It's the *next* step that loses it - the first
+routine post-connect userinfo sync (fteqw's generic, QuakeWorld-era
+per-key `setinfo` update mechanism, which fires automatically and isn't
+something `SERVER_ARGS`/`CLIENT_ARGS` control) rebuilds the player's
+*entire* userinfo string from an internal buffer that Quake II clients
+never actually populate (Quake II's own connect handshake sends userinfo
+as one raw string instead), silently wiping every key - name included -
+back to blank. This is a bug in fteqw itself (confirmed present in this
+project's own pinned `FTEQW_REF`), not something fixable from
+CloudyQuake's side - see `fte-team/fteqw`'s `engine/server/sv_user.c`
+(the `Q2SERVER`-gated branch of its `setinfo` command handler) if you want
+to dig into it yourself. Everything else about a match - joining,
+playing, chat, scores - works regardless; only the display name is
+affected.
 
 ### Quake III Arena (1999)
 
@@ -384,6 +413,60 @@ limitation as Cloudflare's standard proxy, just for a config reason rather
 than a product-tier one. Forward it straight through your router to
 `fteqw-server`, same as you would for any other UDP game server.
 
+## Using WebRTC instead of WSS
+
+WSS (the default above) is TCP underneath, which means any packet loss
+stalls *everything* behind it until the lost packet is retransmitted -
+head-of-line blocking, the same problem real-time protocols always have
+over TCP. fteqw has WebRTC support built in for exactly this reason: once
+connected, it carries game traffic over UDP instead, so a lost packet only
+costs that one packet, not a stall. This is what the `ftemaster` service
+(see the architecture diagram/table above) enables - it doesn't touch game
+traffic at all, only relaying the ICE/SDP handshake metadata that lets the
+browser (or a native client behind NAT) and `fteqw-server` punch a direct
+UDP hole to each other. See fteqw's own `specs/hosting.txt`/`specs/browser.txt`
+("WebRTC / ICE") for the underlying cvars this wraps.
+
+It's entirely opt-in - `ftemaster` builds and starts either way, but does
+nothing until you set:
+
+- **`SV_PORT_RTC`** (e.g. `/myserver`) - a name for `fteqw-server` to
+  register with the broker. Clients then `connect /myserver` instead of a
+  direct address. This is fteqw's own `sv_port_rtc` cvar (**RTC, not
+  RTP** - fteqw's own `specs/hosting.txt` documents this as `sv_port_rtp`,
+  but that cvar doesn't exist anywhere in the actual source; confirmed by
+  reading `engine/common/net_wins.c`'s `SV_PortRTC_Callback` directly -
+  looks like an upstream doc typo).
+- **`NET_ICE_BROKER`** (e.g. `wss://broker.example.com/`) - which broker
+  to use. Leaving this unset while `SV_PORT_RTC` is set would register
+  with fteqw's own public default (`master.frag-net.com`) instead of your
+  own - fine for testing, not what you want for a private server.
+
+Both are read once and passed to `fteqw-server`, `ftemaster`, *and*
+`nginx` (for the browser client) - see `docker-compose.yml`.
+
+### Fronting ftemaster with nginx-proxy-manager
+
+The broker connection is itself a WebSocket upgrade, so it goes through
+NPM exactly like the WebSocket game port already does above - no new NPM
+feature needed:
+
+- Domain: `broker.example.com` (a third hostname/subdomain)
+- Forward to: `<your-server's-LAN-IP>:27950` (or whatever `FTEMASTER_PORT`
+  you set)
+- Enable **"Websockets Support"** on the Details tab, same as the game
+  port - see the note above about how easy this is to miss.
+- Request a new SSL certificate, force SSL.
+
+Then set `NET_ICE_BROKER=wss://broker.example.com/` in `.env`.
+
+Native clients still need `SV_PORT` reachable directly for the initial
+holepunch attempt to have anything to punch through to (ICE tries a direct
+route before falling back to relaying), same UDP port-forward as today -
+WebRTC here mainly helps clients that *can't* forward a port (most
+browsers' hosting environment) or are behind strict NAT, rather than
+replacing the need for an open UDP port on the server side.
+
 ## Troubleshooting
 
 - **Browser client connects then immediately gets kicked/rejected**: check
@@ -398,6 +481,12 @@ than a product-tier one. Forward it straight through your router to
   `proxy_set_header Upgrade`/`Connection` directives in a hand-written nginx
   config) - see [Configuring nginx-proxy-manager](#configuring-nginx-proxy-manager)
   above.
+- **WebRTC connect fails/times out with `NET_ICE_BROKER`/`SV_PORT_RTC`
+  set**: same "Websockets Support" toggle issue as above, just on the
+  broker's own Proxy Host instead of the game port's - see
+  [Fronting ftemaster with nginx-proxy-manager](#fronting-ftemaster-with-nginx-proxy-manager).
+  Also confirm `SV_PORT` (udp) is actually forwarded through your router -
+  see the note at the end of that section.
 
 ## Why the pak volume is mounted into both containers
 

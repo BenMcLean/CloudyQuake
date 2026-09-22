@@ -84,12 +84,25 @@ fi
 NATIVE_CMD="fteqw ${GAME_ARGS}${PASSWORD_ARG}+connect ${WS_HOST}:${SV_PORT:-27500}"
 export NATIVE_CMD_JSON=$(json_escape "$NATIVE_CMD")
 
+# Opt-in WebRTC path, mirroring fteqw-server's own SV_PORT_RTC/
+# NET_ICE_BROKER (set once from the same .env vars in docker-compose.yml,
+# same "set once, passed to both services" convention as GAMEDIRS/
+# BASE_GAMEDIR) - see the README's WebRTC section. When SV_PORT_RTC is
+# blank (default), brokerConnect is null in config.json and site/app.js
+# falls back to exactly today's "+connect wsUrl" behavior.
+BROKER_CONNECT_JSON="null"
+if [ -n "${SV_PORT_RTC:-}" ]; then
+    BROKER_CONNECT_JSON="\"$(json_escape "$SV_PORT_RTC")\""
+fi
+export BROKER_CONNECT_JSON
+export ICE_BROKER_JSON="\"$(json_escape "${NET_ICE_BROKER:-}")\""
+
 # config.base.json holds everything in config.json except "playerName",
 # "password", "gameFiles" and "gamedirs", which nginx/auth.js fills in
 # per-request from the client's own Basic Auth credentials, the PASSWORD
 # env var, and the /paks volume's actual contents respectively - see
 # nginx.conf's "location = /config.json".
-envsubst '${WS_URL} ${CLIENT_ARGS_JSON} ${NATIVE_CMD_JSON}' \
+envsubst '${WS_URL} ${CLIENT_ARGS_JSON} ${NATIVE_CMD_JSON} ${BROKER_CONNECT_JSON} ${ICE_BROKER_JSON}' \
     < /etc/cloudyquake/config.base.json.template > /etc/cloudyquake/config.base.json
 
 exec nginx -g 'daemon off;'

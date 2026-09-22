@@ -1,5 +1,7 @@
 {
   "wsUrl": "${WS_URL}",
   "clientArgs": ${CLIENT_ARGS_JSON},
-  "nativeClientCmd": "${NATIVE_CMD_JSON}"
+  "nativeClientCmd": "${NATIVE_CMD_JSON}",
+  "brokerConnect": ${BROKER_CONNECT_JSON},
+  "iceBroker": ${ICE_BROKER_JSON}
 }

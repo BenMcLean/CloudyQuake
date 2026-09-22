@@ -44,6 +44,12 @@ services:
       # Only used here to build config.json's human-facing nativeClientCmd -
       # nginx never talks raw UDP/WS to fteqw-server itself.
       SV_PORT: ${SV_PORT:-27500}
+      # Opt-in WebRTC path - see ftemaster service and the README's WebRTC
+      # section. Set together, same values as fteqw-server's own below.
+      # When SV_PORT_RTC is blank (default), nginx falls back to today's
+      # wsUrl-only connect behavior - see nginx/docker-entrypoint.sh.
+      SV_PORT_RTC: ${SV_PORT_RTC:-}
+      NET_ICE_BROKER: ${NET_ICE_BROKER:-}
     # Runs as nginx's own built-in user (101:101) by default - matches what
     # nginx.conf's lack of a "user" directive already implies. Override
     # with PUID/PGID if your PAK_DIR is owned by a specific uid/gid on the
@@ -99,6 +105,23 @@ services:
       # belong here, not as their own vars - see docker-entrypoint.sh for
       # why. "-game qw" is always baked in, not part of this.
       SERVER_ARGS: ${SERVER_ARGS:-}
+      # Opt-in WebRTC path, via the ftemaster service below - see the
+      # README's WebRTC section and fteqw's own specs/hosting.txt ("WebRTC
+      # / ICE"). Both blank by default, meaning no change from today's
+      # UDP/WSS-only behavior:
+      #  - SV_PORT_RTC: this server's broker-registered name (e.g.
+      #    "/myserver") - native and browser clients then "connect
+      #    /myserver" over ICE/holepunching instead of a direct
+      #    UDP/WS(S) address. (fteqw's own cvar is "sv_port_rtc" - RTC, not
+      #    RTP, despite fteqw's own specs/hosting.txt saying "sv_port_rtp",
+      #    which doesn't exist anywhere in its source - confirmed by
+      #    reading engine/common/net_wins.c directly.)
+      #  - NET_ICE_BROKER: which broker to register with/connect through -
+      #    point this at your own ftemaster service (through a reverse
+      #    proxy - see the README) rather than fteqw's own
+      #    frag-net.com default.
+      SV_PORT_RTC: ${SV_PORT_RTC:-}
+      NET_ICE_BROKER: ${NET_ICE_BROKER:-}
     volumes:
       # The dedicated server is authoritative - unlike CloudyDoom's
       # chocolate-server, which never touches the WAD at all, fteqw-server
@@ -117,5 +140,23 @@ services:
       # still takes priority over the baked-in one - see
       # docker-entrypoint.sh).
       - ${PAK_DIR:-./paks}:/fte-data:ro
+    restart: unless-stopped
+    logging: *default-logging
+
+  # Optional WebRTC/ICE broker (fteqw's own "ftemaster" binary, built from
+  # the same pinned FTEQW_REF as the other two services) - lets browser
+  # and native clients connect over WebRTC (UDP) instead of only WSS
+  # (TCP), avoiding TCP's head-of-line-blocking stalls on packet loss. See
+  # the README's WebRTC section and fteqw's own specs/hosting.txt ("WebRTC
+  # / ICE"). Holds no game state - unlike fteqw-server, it needs no
+  # PAK_DIR mount. Always built/started, but inert unless SV_PORT_RTP/
+  # NET_ICE_BROKER above are actually set.
+  ftemaster:
+    build:
+      context: ./ftemaster
+    ports:
+      - "${FTEMASTER_PORT:-27950}:${FTEMASTER_PORT:-27950}/tcp"
+    environment:
+      FTEMASTER_PORT: ${FTEMASTER_PORT:-27950}
     restart: unless-stopped
     logging: *default-logging
