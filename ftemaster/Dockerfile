@@ -58,6 +58,6 @@ RUN chmod +x /docker-entrypoint.sh
 # fteqw's own specs/hosting.txt ("WebRTC / ICE") and net_ice.c. Point a
 # reverse proxy's WebSocket support at this, same as fteqw-server's own
 # SV_PORT_TCP - see the README.
-EXPOSE 27950/tcp
+EXPOSE 27950/tcp 27950/udp
 
 ENTRYPOINT ["/docker-entrypoint.sh"]

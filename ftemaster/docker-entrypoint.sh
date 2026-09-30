@@ -7,4 +7,5 @@ set -eu
 FTEMASTER_PORT="${FTEMASTER_PORT:-27950}"
 
 exec stdbuf -oL -eL /usr/local/bin/ftemaster \
+    +set sv_masterport "$FTEMASTER_PORT" \
     +set sv_masterport_tcp "$FTEMASTER_PORT"

@@ -121,7 +121,7 @@ services:
       #    proxy - see the README) rather than fteqw's own
       #    frag-net.com default.
       SV_PORT_RTC: ${SV_PORT_RTC:-}
-      NET_ICE_BROKER: ${NET_ICE_BROKER:-}
+      NET_ICE_BROKER: ${NET_ICE_BROKER_INTERNAL:-${NET_ICE_BROKER:-}}
     volumes:
       # The dedicated server is authoritative - unlike CloudyDoom's
       # chocolate-server, which never touches the WAD at all, fteqw-server
@@ -156,6 +156,9 @@ services:
       context: ./ftemaster
     ports:
       - "${FTEMASTER_PORT:-27950}:${FTEMASTER_PORT:-27950}/tcp"
+      # UDP too: the broker doubles as the STUN server for ICE (net_ice.c),
+      # so clients need to reach it over UDP on this same port number.
+      - "${FTEMASTER_PORT:-27950}:${FTEMASTER_PORT:-27950}/udp"
     environment:
       FTEMASTER_PORT: ${FTEMASTER_PORT:-27950}
     restart: unless-stopped

@@ -181,11 +181,24 @@ SERVER_ARGS="${SERVER_ARGS:-}"
 #   frag-net.com default.
 SV_PORT_RTC="${SV_PORT_RTC:-}"
 NET_ICE_BROKER="${NET_ICE_BROKER:-}"
+# net_ice_broker MUST come before sv_port_rtc: setting sv_port_rtc
+# immediately opens the broker connection using whatever net_ice_broker is
+# at that moment (fteqw's frag-net.com default otherwise). Also, a native
+# server only understands tls:// or tcp:// broker URLs, not ws(s)://.
+# The same NET_ICE_BROKER is shared with the browser client (ws(s)://...),
+# but fteqw's native side only understands tcp:// and tls:// for the
+# broker name it hands to STUN/TCP, and it can't resolve a trailing "/"
+# ("tcp://host:27950/" silently never connects - "tcp://host:27950" does).
+if [ -n "$NET_ICE_BROKER" ]; then
+    NET_ICE_BROKER="${NET_ICE_BROKER%/}"
+    case "$NET_ICE_BROKER" in
+        wss://*) NET_ICE_BROKER="tls://${NET_ICE_BROKER#wss://}" ;;
+        ws://*)  NET_ICE_BROKER="tcp://${NET_ICE_BROKER#ws://}" ;;
+    esac
+    set -- "$@" +set net_ice_broker "$NET_ICE_BROKER"
+fi
 if [ -n "$SV_PORT_RTC" ]; then
     set -- "$@" +set sv_port_rtc "$SV_PORT_RTC"
-fi
-if [ -n "$NET_ICE_BROKER" ]; then
-    set -- "$@" +set net_ice_broker "$NET_ICE_BROKER"
 fi
 
 # chocolate-doom's stdout-buffering bug (see CloudyDoom's doom-server
