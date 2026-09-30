@@ -145,7 +145,7 @@ fetch("config.json", { cache: "no-store" })
         // are placed before +connect anyway, on general principle (set
         // userinfo before connecting, not after).
         // brokerConnect/iceBroker are only present when the server opted
-        // into the WebRTC path (SV_PORT_RTP/NET_ICE_BROKER - see the
+        // into the WebRTC path (SV_PORT_RTC/NET_ICE_BROKER - see the
         // README's WebRTC section and nginx/docker-entrypoint.sh). When
         // unset, this is exactly today's "+connect wsUrl" behavior.
         const brokerArgs = config.iceBroker ? ["+set", "net_ice_broker", config.iceBroker] : [];
