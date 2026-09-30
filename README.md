@@ -61,9 +61,9 @@ Three services, four published ports:
 
 | Service | What it is | Port |
 |---|---|---|
-| `nginx` | Serves the web client (fteqw's own Emscripten/WebGL port, built from [`fte-team/fteqw`](https://github.com/fte-team/fteqw), fetched at build time - see `FTEQW_REF`) behind HTTP Basic Auth. Also serves your pak files, so the auth gate covers those too. | `WEB_HTTP_PORT` (default `8080`, tcp) |
+| `nginx` | Serves the web client (fteqw's own Emscripten/WebGL port, built from [`fte-team/fteqw`](https://github.com/fte-team/fteqw), fetched at build time - see `FTEQW_REF`) behind HTTP Basic Auth. Also serves your pak files, so the auth gate covers those too. | `WEB_HTTP_PORT` (default `27501`, tcp) |
 | `fteqw-server` | A real, unmodified fteqw dedicated server (built from the same pinned `FTEQW_REF`), running standard QuakeWorld gamecode compiled from fteqw's own openly-licensed `quakec/basemod` at build time. Unlike CloudyDoom's `doom-server`, this one *is* authoritative and actually loads your pak data to run the game - see [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers). | `SV_PORT` (default `27500`, **udp**, native clients) and `SV_PORT_TCP` (default `27500`, tcp, WebSocket/browser clients) |
-| `ftemaster` | Optional WebRTC/ICE broker (fteqw's own `ftemaster` binary, built from the same pinned `FTEQW_REF`) - see [Using WebRTC instead of WSS](#using-webrtc-instead-of-wss). Inert unless you set `SV_PORT_RTC`/`NET_ICE_BROKER`. | `FTEMASTER_PORT` (default `27950`, tcp) |
+| `ftemaster` | Optional WebRTC/ICE broker (fteqw's own `ftemaster` binary, built from the same pinned `FTEQW_REF`) - see [Using WebRTC instead of WSS](#using-webrtc-instead-of-wss). Inert unless you set `SV_PORT_RTC`/`NET_ICE_BROKER`. | `FTEMASTER_PORT` (default `27950`, tcp + udp) |
 
 ## Supported games
 
@@ -193,7 +193,7 @@ mkdir -p paks/id1 && cp /path/to/your/pak0.pak /path/to/your/pak1.pak paks/id1/ 
 docker compose up -d --build
 ```
 
-Then open `http://<host>:8080` (or whatever `WEB_HTTP_PORT` you set), log in
+Then open `http://<host>:27501` (or whatever `WEB_HTTP_PORT` you set), log in
 with any username and the shared password, and play - the username you type
 becomes your in-game player name.
 
@@ -388,7 +388,7 @@ Add two Proxy Hosts (NPM's "Hosts → Proxy Hosts → Add Proxy Host"):
 
 1. **The website**, if it isn't already behind Cloudflare directly:
    - Domain: `quake.example.com`
-   - Forward to: `<your-server's-LAN-IP>:8080` (or the `nginx` container's
+   - Forward to: `<your-server's-LAN-IP>:27501` (or the `nginx` container's
      name/port if NPM shares a Docker network with this stack)
    - Request a new SSL certificate, force SSL - standard stuff.
 
@@ -460,12 +460,56 @@ feature needed:
 
 Then set `NET_ICE_BROKER=wss://broker.example.com/` in `.env`.
 
+**The broker also needs to be reachable over UDP.** `ftemaster` doubles as
+the STUN server ICE uses to learn each side's public address, and fteqw
+derives the STUN host/port from the same broker URL. Nginx-proxy-manager
+only proxies TCP, so forward the broker's UDP port (`FTEMASTER_PORT`,
+`27950` by default - published as `/udp` in `docker-compose.yml`) straight
+to the `ftemaster` container, the same way `SV_PORT` is forwarded for
+`fteqw-server`. *(Only the all-on-one-machine setup below has been tested
+so far; check that STUN reaches the broker's hostname on the port fteqw
+derives from `NET_ICE_BROKER` in a real deployment.)*
+
+`27950` is fteqw's own default broker port, so `NET_ICE_BROKER` can leave the
+port off (`wss://broker.example.com/`) when it's published directly. If a
+reverse proxy fronts it on another port (e.g. NPM on `443`), spell that
+port out - the STUN lookup below uses whatever port fteqw derives from this
+URL.
+
+`fteqw-server` reads the same `NET_ICE_BROKER`, but as a native program it
+only understands `tcp://`/`tls://` URLs, so its entrypoint rewrites
+`ws://`/`wss://` to those and strips a trailing `/` (which otherwise makes
+it silently fail to connect to the broker at all).
+
 Native clients still need `SV_PORT` reachable directly for the initial
 holepunch attempt to have anything to punch through to (ICE tries a direct
 route before falling back to relaying), same UDP port-forward as today -
 WebRTC here mainly helps clients that *can't* forward a port (most
 browsers' hosting environment) or are behind strict NAT, rather than
 replacing the need for an open UDP port on the server side.
+
+**There is no automatic fallback to WSS.** The browser client connects to
+`SV_PORT_RTC` if it's set, otherwise to `WS_URL` - not both. (fteqw has no
+supported way to do "try WebRTC, then WebSocket" for a registered name, and
+scraping the engine's console to fake one would break whenever fteqw
+changes.) If your players' networks block UDP, leave `SV_PORT_RTC` blank.
+
+### Testing WebRTC locally in Docker Desktop
+
+Works, with two local-only wrinkles:
+
+- The browser reaches the broker as `localhost` but `fteqw-server` reaches
+  it as `ftemaster` (a container name). Set `NET_ICE_BROKER=ws://localhost:27950/`
+  for the browser and `NET_ICE_BROKER_INTERNAL=ws://ftemaster:27950/` for
+  the server.
+- By default Chrome hides its LAN IP behind an mDNS `.local` name, which a
+  container can't resolve, so ICE has no address to check. Start Chrome
+  with `--disable-features=WebRtcHideLocalIpsWithMdns` for local testing
+  (real deployments don't need this - browsers' public addresses come from
+  the broker's STUN).
+- `+set net_ice_debug 2` in `SERVER_ARGS`/`CLIENT_ARGS` shows every
+  candidate and connectivity check in `docker compose logs fteqw-server`
+  and the browser console.
 
 ## Troubleshooting
 
@@ -482,11 +526,18 @@ replacing the need for an open UDP port on the server side.
   config) - see [Configuring nginx-proxy-manager](#configuring-nginx-proxy-manager)
   above.
 - **WebRTC connect fails/times out with `NET_ICE_BROKER`/`SV_PORT_RTC`
-  set**: same "Websockets Support" toggle issue as above, just on the
-  broker's own Proxy Host instead of the game port's - see
-  [Fronting ftemaster with nginx-proxy-manager](#fronting-ftemaster-with-nginx-proxy-manager).
-  Also confirm `SV_PORT` (udp) is actually forwarded through your router -
-  see the note at the end of that section.
+  set**: check, in order:
+  1. `docker compose logs fteqw-server` should show `Publicly listening on
+     /<name>`. If it doesn't, the server never registered with the broker
+     (see the `tcp://`/trailing-slash note above).
+  2. Set `net_ice_debug 2` and look at the candidates the server logs. If
+     the browser only offers `.local` (mDNS) and Docker-gateway addresses,
+     it's the local Docker Desktop case above.
+  3. The broker's UDP port (STUN) must be reachable, not just its
+     WebSocket port - same "Websockets Support" toggle issue as above
+     applies to the TCP side in nginx-proxy-manager.
+  4. `SV_PORT` (udp) must be forwarded through your router - see the note
+     at the end of [Fronting ftemaster with nginx-proxy-manager](#fronting-ftemaster-with-nginx-proxy-manager).
 
 ## Why the pak volume is mounted into both containers
 
