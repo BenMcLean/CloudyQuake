@@ -1,7 +1,18 @@
 #!/bin/sh
 set -eu
 
-: "${WS_URL:?WS_URL must be set, e.g. wss://quakeworld.example.com}"
+# Either WebRTC (SV_PORT_RTC + NET_ICE_BROKER) or WebSocket (WS_URL) has to be
+# configured, or the browser client has nothing to connect to.
+WS_URL="${WS_URL:-}"
+if [ -z "${SV_PORT_RTC:-}" ] && [ -z "$WS_URL" ]; then
+    echo "ERROR: set SV_PORT_RTC and NET_ICE_BROKER (WebRTC, recommended) or WS_URL (WebSocket), e.g. WS_URL=wss://quakeserver.example.com" >&2
+    exit 1
+fi
+if [ -n "${SV_PORT_RTC:-}" ] && [ -z "${NET_ICE_BROKER:-}" ]; then
+    echo "ERROR: SV_PORT_RTC is set but NET_ICE_BROKER is not - set it to the public wss:// URL of your broker, e.g. wss://quakebroker.example.com/" >&2
+    exit 1
+fi
+export WS_URL
 
 # PASSWORD is intentionally optional and not read anywhere in this script -
 # nginx/auth.js reads it straight from the environment at request time (via
@@ -50,11 +61,14 @@ export CLIENT_ARGS_JSON="${CLIENT_ARGS_JSON}]"
 # native fteqw client (not the browser) would need to join this exact
 # server, connecting straight to fteqw-server's UDP port and bypassing
 # nginx entirely - see the README's "Connecting" section. The host is
-# derived from WS_URL on the assumption its hostname also
-# resolves to fteqw-server's UDP port, which holds for the two-hostname
-# split-domain setup the README recommends, but not for every possible
-# deployment - it's a starting point to edit, not gospel.
-WS_HOST=$(printf '%s' "$WS_URL" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##; s#[:/].*##')
+# SV_HOST if set, else derived from WS_URL (on the assumption its hostname
+# also resolves to fteqw-server's UDP port), else a placeholder - it's a
+# starting point to edit, not gospel.
+WS_HOST="${SV_HOST:-}"
+if [ -z "$WS_HOST" ] && [ -n "$WS_URL" ]; then
+    WS_HOST=$(printf '%s' "$WS_URL" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##; s#[:/].*##')
+fi
+[ -n "$WS_HOST" ] || WS_HOST="<your-server-hostname>"
 # Unlike fteqw-server's own SERVER_ARGS (server-side, potentially including
 # gamecode-mode switches like "-hexen2" - see its docker-entrypoint.sh), a
 # native *client* never executes gamecode, so this only needs "-game" for

@@ -96,7 +96,7 @@ fetch("config.json", { cache: "no-store" })
         return r.json();
     })
     .then((config) => {
-        if (!config.wsUrl) throw new Error("config.json is missing wsUrl");
+        if (!config.brokerConnect && !config.wsUrl) throw new Error("config.json has neither brokerConnect (WebRTC) nor wsUrl (WebSocket)");
         if (!config.gameFiles || !Object.keys(config.gameFiles).length) {
             throw new Error("config.json has no gameFiles - is a pak0.pak actually in the " + (config.baseGamedir || "id1") + "/ folder of your PAK_DIR volume?");
         }

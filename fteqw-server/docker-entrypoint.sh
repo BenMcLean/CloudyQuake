@@ -175,27 +175,26 @@ SERVER_ARGS="${SERVER_ARGS:-}"
 # SV_PORT_RTC: this server's broker-registered name (e.g. "/myserver") -
 #   clients then "connect /myserver" over ICE/holepunching instead of a
 #   direct UDP/WS(S) address.
-# NET_ICE_BROKER: which broker to register with (fteqw's own
-#   "net_ice_broker" cvar) - point this at your own ftemaster service
-#   (through a reverse proxy - see the README) rather than fteqw's own
-#   frag-net.com default.
+# The broker is always the bundled ftemaster, reached directly over the
+# container network (never through the public reverse proxy), so its
+# address is an internal detail, not user configuration. FTEMASTER_HOST is
+# "ftemaster" under docker-compose; a single-container image would run
+# ftemaster alongside this process, i.e. "localhost".
 SV_PORT_RTC="${SV_PORT_RTC:-}"
-NET_ICE_BROKER="${NET_ICE_BROKER:-}"
+FTEMASTER_HOST="${FTEMASTER_HOST:-ftemaster}"
+FTEMASTER_PORT="${FTEMASTER_PORT:-27950}"
+NET_ICE_BROKER=""
+if [ -n "$SV_PORT_RTC" ]; then
+    NET_ICE_BROKER="${FTEMASTER_HOST}:${FTEMASTER_PORT}"
+fi
 # net_ice_broker MUST come before sv_port_rtc: setting sv_port_rtc
 # immediately opens the broker connection using whatever net_ice_broker is
 # at that moment (fteqw's frag-net.com default otherwise). Also, a native
-# server only understands tls:// or tcp:// broker URLs, not ws(s)://.
-# The same NET_ICE_BROKER is shared with the browser client (ws(s)://...),
-# but fteqw's native side only understands tcp:// and tls:// for the
-# broker name it hands to STUN/TCP, and it can't resolve a trailing "/"
-# ("tcp://host:27950/" silently never connects - "tcp://host:27950" does).
+# server only understands tls:// or tcp:// broker URLs (not ws(s)://), and
+# can't resolve a trailing "/" ("tcp://host:27950/" silently never
+# connects - "tcp://host:27950" does).
 if [ -n "$NET_ICE_BROKER" ]; then
-    NET_ICE_BROKER="${NET_ICE_BROKER%/}"
-    case "$NET_ICE_BROKER" in
-        wss://*) NET_ICE_BROKER="tls://${NET_ICE_BROKER#wss://}" ;;
-        ws://*)  NET_ICE_BROKER="tcp://${NET_ICE_BROKER#ws://}" ;;
-    esac
-    set -- "$@" +set net_ice_broker "$NET_ICE_BROKER"
+    set -- "$@" +set net_ice_broker "tcp://$NET_ICE_BROKER"
 fi
 if [ -n "$SV_PORT_RTC" ]; then
     set -- "$@" +set sv_port_rtc "$SV_PORT_RTC"

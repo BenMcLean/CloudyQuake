@@ -1,27 +1,24 @@
 # CloudyQuake
 
-Multiplayer QuakeWorld, playable straight in the browser, pointed at your own
-dedicated server. For the people you invite to play: no client install, no
-router config, just a URL and a password. Everything here is open source and
-packaged as a docker-compose stack, in the same spirit as
-[CloudyDoom](https://github.com/BenMcLean/cloudydoom).
+Multiplayer QuakeWorld (and friends), playable straight in the browser and
+hosted on your own dedicated server. For the people you invite to play: no
+client install, no router config, just a URL and a password. Everything here
+is open source and runs as a docker-compose stack.
 
-That "no setup" experience is only true for players - **you, running the
+The "no setup" experience is only true for players - **you, running the
 server, still need to expose it to the internet**, same as hosting any other
-self-hosted service. See
-[Putting this behind a reverse proxy / TLS](#putting-this-behind-a-reverse-proxy--tls)
-for the concrete setup and exactly what that means for your router.
+self-hosted service. [Deploying](#deploying) lists every hostname and port
+involved in one place.
 
 Native QuakeWorld clients (fteqw, or any other QW-compatible engine) can also
 connect directly to the same server and play alongside the browser players -
-see [Connecting](#connecting) below.
+see [Connecting](#connecting).
 
-Private and unlisted by default (`sv_public` isn't set to advertise, which
-is fteqw's own default unless you explicitly add `+set sv_public 1` to
-`SERVER_ARGS`) and password-gated. The actual game content (`pak0.pak`, optionally
-`pak1.pak`, or any QuakeC mod's own paks) is a docker volume, same as
-CloudyDoom's WAD directory - see [Getting paks](#getting-paks) for what goes
-in it, it's entirely up to you.
+The server is private and unlisted by default (fteqw's own `sv_public`
+default, unless you add `+set sv_public 1` to `SERVER_ARGS`) and
+password-gated. The actual game content (`pak0.pak`, optionally `pak1.pak`,
+or any QuakeC mod's own paks) is a docker volume that you fill yourself - see
+[Getting paks](#getting-paks).
 
 ## How it works
 
@@ -31,13 +28,9 @@ in it, it's entirely up to you.
       Browser --HTTPS--> nginx        (Basic Auth; serves the client + paks)
 
  2. Then the browser plays over ONE of these, chosen by the admin
-    (SV_PORT_RTC blank = A, set = B):
+    (SV_PORT_RTC set = A, blank = B):
 
-    A. WebSocket - TCP, works on any network (default)
-
-      Browser --WSS--> fteqw-server
-
-    B. WebRTC - UDP, lower latency under packet loss, needs UDP reachable
+    A. WebRTC - UDP, lower latency under packet loss (recommended)
 
       Browser --WSS--> ftemaster <--WSS-- fteqw-server
                         (the broker only relays connection info;
@@ -45,27 +38,29 @@ in it, it's entirely up to you.
 
       Browser <=======UDP, direct======> fteqw-server
 
+    B. WebSocket - TCP, works on any network (alternative)
+
+      Browser --WSS--> fteqw-server
+
  3. Native fteqw/QuakeWorld clients skip all of the above:
 
       Native client --UDP--> fteqw-server
 ```
 
-`fteqw-server` is a real QuakeWorld dedicated server that speaks WebSocket,
-WebRTC and plain UDP natively, so no separate translator service is needed.
+`fteqw-server` is a real QuakeWorld dedicated server that speaks WebRTC,
+WebSocket and plain UDP natively, so no separate translator service is
+needed. It is authoritative and actually loads your pak data to run the game -
+see [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers).
 
-Unlike [CloudyDoom's architecture](https://github.com/BenMcLean/cloudydoom#how-it-works),
-there's no separate "gateway" service translating WebSocket to UDP - fteqw's
-dedicated server has WebSocket support built in (`sv_port_tcp`, see fteqw's
-own `specs/hosting.txt`/`specs/browser.txt`), so `fteqw-server` is directly
-what both browser and native clients connect to.
+Three services:
 
-Three services and their published ports:
+| Service | What it is |
+|---|---|
+| `nginx` | Serves the web client (fteqw's own Emscripten/WebGL port, built from [`fte-team/fteqw`](https://github.com/fte-team/fteqw) at build time - see `FTEQW_REF`) behind HTTP Basic Auth. Also serves your pak files, so the auth gate covers those too. |
+| `fteqw-server` | A real, unmodified fteqw dedicated server (built from the same pinned `FTEQW_REF`), running standard QuakeWorld gamecode compiled from fteqw's own openly-licensed `quakec/basemod`. Serves WebRTC, WebSocket and native UDP clients. |
+| `ftemaster` | The WebRTC/ICE broker (fteqw's own `ftemaster` binary). Only relays the handshake that lets browsers and `fteqw-server` find each other. Runs either way but does nothing unless you set `SV_PORT_RTC`. |
 
-| Service | What it is | Port |
-|---|---|---|
-| `nginx` | Serves the web client (fteqw's own Emscripten/WebGL port, built from [`fte-team/fteqw`](https://github.com/fte-team/fteqw), fetched at build time - see `FTEQW_REF`) behind HTTP Basic Auth. Also serves your pak files, so the auth gate covers those too. | `WEB_HTTP_PORT` (default `27501`, tcp) |
-| `fteqw-server` | A real, unmodified fteqw dedicated server (built from the same pinned `FTEQW_REF`), running standard QuakeWorld gamecode compiled from fteqw's own openly-licensed `quakec/basemod` at build time. Unlike CloudyDoom's `doom-server`, this one *is* authoritative and actually loads your pak data to run the game - see [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers). | `SV_PORT` (default `27500`, **udp**, native clients) and `SV_PORT_TCP` (default `27500`, tcp, WebSocket/browser clients) |
-| `ftemaster` | WebRTC/ICE broker (fteqw's own `ftemaster` binary, built from the same pinned `FTEQW_REF`) - see [Using WebRTC instead of WSS](#using-webrtc-instead-of-wss). Runs either way but does nothing unless you set `SV_PORT_RTC`/`NET_ICE_BROKER`. | `FTEMASTER_PORT` (default `27950`; tcp for the broker itself, udp only if you use it as your STUN server - see the [production setup](#production-setup-cloudflare--nginx-proxy-manager--webrtc)) |
+Ports and hostnames are all in [Deploying](#deploying).
 
 ## Supported games
 
@@ -190,28 +185,29 @@ affected.
 git clone <this repo's URL>
 cd cloudyquake
 cp .env.example .env
-$EDITOR .env   # set WS_URL at minimum, and PASSWORD for a real deployment
+$EDITOR .env   # set SV_PORT_RTC and NET_ICE_BROKER at minimum, and PASSWORD for a real deployment
 mkdir -p paks/id1 && cp /path/to/your/pak0.pak /path/to/your/pak1.pak paks/id1/   # see "Getting paks" below - data1/ instead of id1/ for Hexen II
 docker compose up -d --build
 ```
 
 Then open `http://<host>:27501` (or whatever `WEB_HTTP_PORT` you set), log in
 with any username and the shared password, and play - the username you type
-becomes your in-game player name.
+becomes your in-game player name. For anyone other than yourself on a real
+network, continue to [Deploying](#deploying) first: you need TLS.
 
 ### Configuration
 
 Everything is configured via environment variables at container start, not
 baked into any image - see `.env.example` for the full list with defaults.
-The one you can't skip:
+The ones you can't skip:
 
-- `WS_URL` - the websocket URL browsers will connect to. Has to
-  be reachable from wherever your players actually are (not just inside the
-  docker network). If you're fronting this with a reverse proxy/TLS
-  terminator (recommended - see below), point this at that proxy instead of
-  directly at `SV_PORT_TCP`.
+- `SV_PORT_RTC` and `NET_ICE_BROKER` - turn on WebRTC, the recommended
+  transport. See [Deploying](#deploying) for values.
+- *or*, as the alternative, `WS_URL` - the public `wss://` URL of
+  `fteqw-server`'s WebSocket port, with `SV_PORT_RTC` left blank. See
+  [Alternative: WebSocket only](#alternative-websocket-only).
 
-And one you should set unless you have a specific reason not to:
+And the ones you should set unless you have a specific reason not to:
 
 - `PASSWORD` - gates both the web login (and pak downloads) and joining the
   QuakeWorld server itself. See `.env.example`'s comment on it for why one
@@ -233,8 +229,8 @@ shareware episode, `id1/pak1.pak`) inside `paks/` (or wherever `PAK_DIR`
 points) before the game will actually run - or `data1/pak0.pak`/`pak1.pak`
 if you've set `BASE_GAMEDIR=data1` for Hexen II, or `baseq2/pak0.pak` for
 `GAME=quake2`/`BASE_GAMEDIR=baseq2` (see
-[Supported games](#supported-games)). Unlike CloudyDoom's dedicated
-server, **`fteqw-server` does load this data itself** - see
+[Supported games](#supported-games)). **`fteqw-server` loads this data
+itself** - see
 [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers) -
 so it needs to be present before the server can start a map.
 
@@ -290,8 +286,7 @@ The base gamedir (`BASE_GAMEDIR`, `id1/` by default) is always loaded.
 pack over it, or `GAMEDIRS="portals"` for Hexen II's own mission pack) - a
 mission pack, a total conversion, a QuakeC mod, anything that follows
 Quake's own `-game <gamedir>` convention (fteqw supports up to 8 stacked
-gamedirs total). What goes in any of these folders is entirely up to you,
-same as CloudyDoom's `WAD_DIR`:
+gamedirs total). What goes in any of these folders is entirely up to you:
 
 - Your own copy of `pak0.pak`/`pak1.pak` (from the original CD, Steam, GOG,
   etc.), copied out of your install's base gamedir, for the full game.
@@ -342,7 +337,7 @@ actual owner - see `.env.example`.
 
 ## Connecting
 
-- **Browser**: open `http://<host>:<WEB_HTTP_PORT>`, log in, play.
+- **Browser**: open your site's URL, log in, play.
 - **Native fteqw/QuakeWorld client**: connect straight to `fteqw-server`'s
   UDP port, bypassing `nginx` entirely - e.g. `fteqw +set password
   "<PASSWORD>" +connect <host>:<SV_PORT>`. Lands in the same game as the
@@ -352,194 +347,147 @@ actual owner - see `.env.example`.
   view it in a browser tab once logged in) - it's there purely for humans to
   read, the browser client itself never looks at it.
 
-## Putting this behind a reverse proxy / TLS
+## Deploying
 
 **This compose file does not terminate TLS.** HTTP Basic Auth sends
 credentials in the clear, and browsers flatly refuse to open a plain `ws://`
 connection from a page loaded over `https://` ("mixed content" blocking -
-not a warning, a hard failure). So for anything beyond local testing, both
-`nginx` and `fteqw-server`'s WebSocket port need to sit behind something
-that terminates TLS.
+not a warning, a hard failure). So for anything beyond local testing, the
+web site and both WebSocket endpoints need to sit behind something that
+terminates TLS. The examples below use **nginx-proxy-manager** (NPM); Caddy,
+Traefik or a hand-written nginx work the same way. A local reverse proxy
+adds microseconds; it's nothing like routing through a CDN.
 
-The setup this project is designed around uses **two separate domains**,
-because the web client and the game traffic have very different latency
-requirements:
+> **Status:** the WebRTC setup is worked out from fteqw's source and a
+> same-machine Docker test. It has **not** yet been verified end-to-end on a
+> real deployment, so check it with `net_ice_debug 2` (below) the first time.
 
-- **`quake.example.com`** (or whatever hostname you pick) - Cloudflare's
-  proxy (orange-cloud DNS) in front, serving the web client and paks. This is
-  ordinary HTTP(S) traffic with no latency sensitivity, so routing it through
-  Cloudflare's remote edge is fine.
-- **`quakeworld.example.com`** - a plain, unproxied ("grey-cloud"/DNS-only) A
-  record pointing straight at your home IP, for the WebSocket game traffic
-  (and, separately, `fteqw-server`'s raw UDP port for native clients, which
-  can't go through any HTTP-based reverse proxy at all). Routing real-time
-  game traffic through a remote CDN edge adds a real round-trip that a direct
-  connection doesn't have - worth avoiding even though Cloudflare's proxy is
-  technically capable of carrying WebSocket traffic.
+### Hostnames
 
-That second hostname still needs TLS for the `wss://` requirement above,
-without introducing the latency a remote proxy would. If you're already
-running **nginx-proxy-manager** (or Caddy, Traefik, etc.) locally on that
-same server for your other self-hosted apps, that's the right tool for this
-too - it's a local hop (microseconds), nothing like Cloudflare's geographic
-round-trip, and it gets you automatic Let's Encrypt certs for free.
+Register these (replace `example.com`). All point at your server's IP:
 
-### Configuring nginx-proxy-manager
+| Hostname | Cloudflare | Purpose |
+|---|---|---|
+| `quake.example.com` | proxied (orange cloud) | Web client and paks |
+| `quakebroker.example.com` | DNS-only (grey cloud) | WebRTC broker signaling (`ftemaster`) |
+| `quakeserver.example.com` | DNS-only (grey cloud) | The game server's address: where WebRTC's UDP traffic and native clients arrive (and `wss://` in the WebSocket alternative) |
 
-Add two Proxy Hosts (NPM's "Hosts → Proxy Hosts → Add Proxy Host"):
+The web site is ordinary HTTP(S) with no latency sensitivity, so Cloudflare's
+proxy is fine there. The other two carry real-time traffic, so they stay
+unproxied to avoid an extra CDN round-trip (and Cloudflare's proxy can't
+carry UDP at all). If you don't use Cloudflare, the distinction doesn't
+matter - just point all three at your server.
 
-1. **The website**, if it isn't already behind Cloudflare directly:
-   - Domain: `quake.example.com`
-   - Forward to: `<your-server's-LAN-IP>:27501` (or the `nginx` container's
-     name/port if NPM shares a Docker network with this stack)
-   - Request a new SSL certificate, force SSL - standard stuff.
+### Ports
 
-2. **The WebSocket server** - this is the one with a step that's easy to
-   miss:
-   - Domain: `quakeworld.example.com`
-   - Forward to: `<your-server's-LAN-IP>:27500` (or whatever `SV_PORT_TCP`
-     you set)
-   - On the **Details** tab, enable **"Websockets Support"**. Without this,
-     NPM won't forward the `Upgrade`/`Connection` headers the WebSocket
-     handshake needs, and every browser client will fail to connect with no
-     obvious error pointing at NPM as the cause.
-   - Request a new SSL certificate here too, force SSL.
+| What | Port | Protocol | Route |
+|---|---|---|---|
+| Web client + paks | `WEB_HTTP_PORT` (default `27501`) | tcp | router `443` -> NPM -> `nginx` |
+| WebRTC broker signaling | `FTEMASTER_PORT` (default `27950`) | tcp | router `443` -> NPM -> `ftemaster` |
+| **WebRTC game traffic, native clients** | `SV_PORT` (default `27500`) | **udp** | **router forwards straight to `fteqw-server`** - no proxy can carry UDP |
+| WebSocket game traffic (alternative only) | `SV_PORT_TCP` (default `27500`) | tcp | router `443` -> NPM -> `fteqw-server` |
 
-Then set `WS_URL=wss://quakeworld.example.com` in `.env` - no
-custom port needed, since NPM terminates `443` and forwards internally to
-`fteqw-server`'s `SV_PORT_TCP`.
+Your router therefore needs: TCP `443` to NPM (you probably have this
+already) and **UDP `27500` to the machine running this stack**. Nothing else
+needs a forward.
 
-**`SV_PORT` (raw UDP, for native clients) can't go through NPM either** -
-nginx-based reverse proxies are HTTP(S)/WebSocket-only, the same fundamental
-limitation as Cloudflare's standard proxy, just for a config reason rather
-than a product-tier one. Forward it straight through your router to
-`fteqw-server`, same as you would for any other UDP game server.
+### Reverse proxy (nginx-proxy-manager)
 
-## Using WebRTC instead of WSS
+Add one Proxy Host per row ("Hosts -> Proxy Hosts -> Add Proxy Host"). Each
+gets a new SSL certificate with force SSL.
 
-WSS (the default above) is TCP underneath, which means any packet loss
-stalls *everything* behind it until the lost packet is retransmitted -
-head-of-line blocking, the same problem real-time protocols always have
-over TCP. fteqw has WebRTC support built in for exactly this reason: once
-connected, it carries game traffic over UDP instead, so a lost packet only
-costs that one packet, not a stall. This is what the `ftemaster` service
-(see the architecture diagram/table above) enables - it doesn't touch game
-traffic at all, only relaying the ICE/SDP handshake metadata that lets the
-browser (or a native client behind NAT) and `fteqw-server` punch a direct
-UDP hole to each other. See fteqw's own `specs/hosting.txt`/`specs/browser.txt`
-("WebRTC / ICE") for the underlying cvars this wraps.
+| Domain | Forward to | Websockets Support |
+|---|---|---|
+| `quake.example.com` | `<server LAN IP>:27501` | not needed |
+| `quakebroker.example.com` | `<server LAN IP>:27950` | **required** |
 
-WebRTC is a choice, not an add-on: `ftemaster` builds and starts either way, but does
-nothing until you set:
+For the WebSocket alternative only, add `quakeserver.example.com` ->
+`<server LAN IP>:27500` (`SV_PORT_TCP`) with Websockets Support. With WebRTC
+that hostname needs no Proxy Host: it just has to resolve to your server so
+the UDP forward and native clients can reach it.
 
-- **`SV_PORT_RTC`** (e.g. `/myserver`) - a name for `fteqw-server` to
-  register with the broker. Clients then `connect /myserver` instead of a
-  direct address. This is fteqw's own `sv_port_rtc` cvar (**RTC, not
-  RTP** - fteqw's own `specs/hosting.txt` documents this as `sv_port_rtp`,
-  but that cvar doesn't exist anywhere in the actual source; confirmed by
-  reading `engine/common/net_wins.c`'s `SV_PortRTC_Callback` directly -
-  looks like an upstream doc typo).
-- **`NET_ICE_BROKER`** (e.g. `wss://broker.example.com/`) - which broker
-  to use. Leaving this unset while `SV_PORT_RTC` is set would register
-  with fteqw's own public default (`master.frag-net.com`) instead of your
-  own - fine for testing, not what you want for a private server.
+**"Websockets Support" (Details tab) is the step that's easy to miss.**
+Without it NPM won't forward the `Upgrade`/`Connection` headers the
+handshake needs, and every browser client fails to connect with no obvious
+error pointing at NPM as the cause. (If NPM shares a Docker network with this
+stack you can forward to container names instead of the LAN IP.)
 
-Both are read once and passed to `fteqw-server`, `ftemaster`, *and*
+### Configuring WebRTC (recommended)
+
+WebSocket is TCP underneath, so any packet loss stalls *everything* behind
+it until the lost packet is retransmitted (head-of-line blocking). WebRTC
+carries game traffic over UDP instead, so a lost packet only costs that one
+packet. `ftemaster` doesn't touch game traffic at all - it only relays the
+ICE/SDP handshake that lets the browser and `fteqw-server` open a direct UDP
+path to each other. See fteqw's own `specs/hosting.txt`/`specs/browser.txt`
+("WebRTC / ICE").
+
+`.env`:
+
+```
+SV_PORT_RTC=/myserver
+NET_ICE_BROKER=wss://quakebroker.example.com/
+SV_HOST=quakeserver.example.com
+SERVER_ARGS=... +set net_ice_servers stun:stun.l.google.com:19302
+CLIENT_ARGS=+set net_ice_servers stun:stun.l.google.com:19302
+```
+
+- `SV_PORT_RTC` - a name for `fteqw-server` to register with the broker;
+  clients then `connect /myserver`. This is fteqw's `sv_port_rtc` cvar
+  (**RTC, not RTP** - fteqw's `specs/hosting.txt` says `sv_port_rtp`, but
+  that cvar doesn't exist in the source; an upstream doc typo). Setting it is
+  what switches the browser from WebSocket to WebRTC.
+- `NET_ICE_BROKER` - the public URL browsers use to reach the broker
+  (through NPM, on `443`). Required with `SV_PORT_RTC`. `fteqw-server` itself
+  always talks to the bundled `ftemaster` directly over the container
+  network, so there's no matching setting for that side.
+- `SV_HOST` - optional; the hostname shown in the ready-to-paste native
+  client command. Must resolve to the server's UDP port.
+- `net_ice_servers` supplies a real STUN server to both sides. Normally
+  fteqw uses the broker itself as STUN, derived from the broker URL's host and
+  port - but behind NPM that lands on a port nothing answers UDP on, and the
+  server (which reaches `ftemaster` over Docker's private network) would learn
+  a private address instead of your public one. Any public STUN server works;
+  use your own if you'd rather not depend on Google's.
+
+All of these are read once and passed to `fteqw-server`, `ftemaster`, *and*
 `nginx` (for the browser client) - see `docker-compose.yml`.
 
-### Fronting ftemaster with nginx-proxy-manager
+**Check it.** Add `+set net_ice_debug 2` to `SERVER_ARGS`/`CLIENT_ARGS`, load
+the site, and look at `docker compose logs fteqw-server`: you should see
+`Publicly listening on /myserver`, the browser's candidates, your public IP as
+the server's `Public address`, and finally `ice state connected`. If it stays
+on "Waiting for broker connection" the broker Proxy Host (or its Websockets
+toggle) is the problem; if it reaches `connecting` but times out, UDP `27500`
+isn't reaching the server.
 
-The broker connection is itself a WebSocket upgrade, so it goes through
-NPM exactly like the WebSocket game port already does above - no new NPM
-feature needed:
+If your players' networks block UDP, WebRTC can't work for them and there is
+no automatic fallback - use the WebSocket alternative below for everyone.
 
-- Domain: `broker.example.com` (a third hostname/subdomain)
-- Forward to: `<your-server's-LAN-IP>:27950` (or whatever `FTEMASTER_PORT`
-  you set)
-- Enable **"Websockets Support"** on the Details tab, same as the game
-  port - see the note above about how easy this is to miss.
-- Request a new SSL certificate, force SSL.
+### Alternative: WebSocket only
 
-Then set `NET_ICE_BROKER=wss://broker.example.com/` in `.env`. (`fteqw-server`
-is a native program that only understands `tcp://`/`tls://` broker URLs and
-can't cope with a trailing `/`, so its entrypoint rewrites `ws(s)://` and
-strips the slash for you.) The remaining pieces - UDP, STUN, and the
-server's own broker address - are in the walkthrough below.
+Simpler, works on any network, but subject to the TCP stalls described
+above. Leave `SV_PORT_RTC` and `NET_ICE_BROKER` blank, and set:
 
-### Production setup: Cloudflare + nginx-proxy-manager + WebRTC
+```
+WS_URL=wss://quakeserver.example.com
+```
 
-> **Status:** worked out from fteqw's source and a same-machine Docker test.
-> It has **not** yet been verified end-to-end on a real deployment, so
-> check it with `net_ice_debug 2` (below) the first time.
-
-Everything on the server needs these ports; only some go through proxies:
-
-| Traffic | Port | Path |
-|---|---|---|
-| Website + paks (HTTPS) | `WEB_HTTP_PORT` `27501` | Cloudflare (orange cloud) -> your router `443` -> NPM -> `nginx` |
-| WebSocket game / fallback (WSS) | `SV_PORT_TCP` `27500` tcp | DNS-only -> router `443` -> NPM -> `fteqw-server` |
-| WebRTC broker signaling (WSS) | `FTEMASTER_PORT` `27950` tcp | DNS-only -> router `443` -> NPM -> `ftemaster` |
-| **WebRTC game traffic + native clients** | `SV_PORT` `27500` **udp** | **router forwards UDP straight to `fteqw-server`** - no proxy can carry it |
-
-1. **DNS (Cloudflare).** Three names, all pointing at your home IP:
-   `quake.example.com` proxied (orange cloud); `quakeworld.example.com` and
-   `broker.example.com` **DNS-only** (grey cloud). Cloudflare's proxy only
-   carries HTTP(S)/WebSocket, never UDP, and the two grey-cloud names avoid
-   an extra CDN hop for game traffic.
-2. **Router.** Forward TCP `443` to NPM (you probably have this already)
-   and **UDP `27500` to the server running this stack**. That UDP port is
-   what WebRTC actually uses for gameplay: ICE probes and game packets
-   arrive on `fteqw-server`'s `SV_PORT` socket. Nothing else needs a UDP
-   forward.
-3. **NPM.** Three Proxy Hosts with "Websockets Support" and an SSL cert
-   each - the two above plus `broker.example.com` -> `:27950` (see the
-   sections above and below for the exact fields).
-4. **`.env`:**
-   ```
-   WS_URL=wss://quakeworld.example.com
-   SV_PORT_RTC=/myserver
-   NET_ICE_BROKER=wss://broker.example.com/
-   NET_ICE_BROKER_INTERNAL=ws://ftemaster:27950/
-   SERVER_ARGS=... +set net_ice_servers stun:stun.l.google.com:19302
-   CLIENT_ARGS=+set net_ice_servers stun:stun.l.google.com:19302
-   ```
-   - `NET_ICE_BROKER` is what browsers use (through NPM, on `443`).
-   - `NET_ICE_BROKER_INTERNAL` is what `fteqw-server` uses: the plain
-     container-to-container address. Without it the server would try
-     `broker.example.com` on fteqw's default broker port `27950` over TLS,
-     but NPM only listens on `443` and `27950` is plain TCP.
-   - `net_ice_servers` supplies a real STUN server for both sides.
-     Normally fteqw uses the broker itself as STUN, derived from the broker
-     URL's hostname and port - but behind NPM that lands on a port nothing
-     answers UDP on, and the server (which reaches `ftemaster` over
-     Docker's private network) would learn a private address instead of
-     your public one. Any public STUN server works; use your own if you'd
-     rather not depend on Google's.
-5. **Check it.** Add `+set net_ice_debug 2` to `SERVER_ARGS`/`CLIENT_ARGS`,
-   load the site, and look at `docker compose logs fteqw-server`: you
-   should see `Publicly listening on /myserver`, the browser's candidates,
-   your public IP as the server's `Public address`, and finally `ice state
-   connected`. If it stays on "Waiting for broker connection" the broker
-   Proxy Host (or its Websockets toggle) is the problem; if it reaches
-   `connecting` but times out, UDP `27500` isn't reaching the server.
-
-If your players' networks block UDP, WebRTC can't work for them at all (and
-there is no automatic fallback) - leave `SV_PORT_RTC` blank to serve everyone
-over WSS instead.
+You then don't need the `quakebroker` hostname, its Proxy Host, or the broker
+port (the `ftemaster` service still starts but sits idle). The UDP `27500`
+forward is only needed for native clients.
 
 ### Testing WebRTC locally in Docker Desktop
 
-Works, with two local-only wrinkles:
+Works, with a local-only wrinkle or two:
 
-- The browser reaches the broker as `localhost` but `fteqw-server` reaches
-  it as `ftemaster` (a container name). Set `NET_ICE_BROKER=ws://localhost:27950/`
-  for the browser and `NET_ICE_BROKER_INTERNAL=ws://ftemaster:27950/` for
-  the server.
+- Set `NET_ICE_BROKER=ws://localhost:27950/` so the browser can reach the
+  broker (the server finds it on its own).
 - By default Chrome hides its LAN IP behind an mDNS `.local` name, which a
   container can't resolve, so ICE has no address to check. Start Chrome
   with `--disable-features=WebRtcHideLocalIpsWithMdns` for local testing
   (real deployments don't need this - browsers' public addresses come from
-  the broker's STUN).
+  STUN).
 - `+set net_ice_debug 2` in `SERVER_ARGS`/`CLIENT_ARGS` shows every
   candidate and connectivity check in `docker compose logs fteqw-server`
   and the browser console.
@@ -552,35 +500,29 @@ Works, with two local-only wrinkles:
   already-authenticated browser via `/config.json` for it to send as
   `+password`, so a mismatch here usually means stale `.env` values from
   before a `docker compose up` that didn't rebuild.
-- **WebSocket connection fails only through the reverse proxy, works fine
-  hitting the container's port directly**: almost always the "Websockets
-  Support" toggle in nginx-proxy-manager (or the equivalent
-  `proxy_set_header Upgrade`/`Connection` directives in a hand-written nginx
-  config) - see [Configuring nginx-proxy-manager](#configuring-nginx-proxy-manager)
-  above.
-- **WebRTC connect fails/times out with `NET_ICE_BROKER`/`SV_PORT_RTC`
-  set**: check, in order:
+- **Connection fails only through the reverse proxy, works fine hitting the
+  container's port directly**: almost always the "Websockets Support" toggle
+  in nginx-proxy-manager (or the equivalent `proxy_set_header
+  Upgrade`/`Connection` directives in a hand-written nginx config) on the
+  broker or game-server host - see [Reverse proxy](#reverse-proxy-nginx-proxy-manager).
+- **WebRTC connect fails/times out**: check, in order:
   1. `docker compose logs fteqw-server` should show `Publicly listening on
      /<name>`. If it doesn't, the server never registered with the broker
      (see the `tcp://`/trailing-slash note above).
   2. Set `net_ice_debug 2` and look at the candidates the server logs. If
      the browser only offers `.local` (mDNS) and Docker-gateway addresses,
      it's the local Docker Desktop case above.
-  3. The broker's Proxy Host in nginx-proxy-manager needs "Websockets
-     Support" enabled, same as the game port above.
+  3. The broker's Proxy Host needs "Websockets Support" enabled.
   4. `SV_PORT` (udp) must be forwarded through your router straight to
      `fteqw-server`, and both sides need a reachable STUN server - see
-     [Production setup](#production-setup-cloudflare--nginx-proxy-manager--webrtc).
+     [Configuring WebRTC](#configuring-webrtc-recommended).
 
 ## Why the pak volume is mounted into both containers
 
-Doom's netcode is a deterministic lockstep model - every client simulates
-the game itself, and `chocolate-server` (CloudyDoom's dedicated server) is a
-pure netcode sequencer that never even looks at the WAD. QuakeWorld is
-different: it's a genuine client-server model where the server is
-authoritative and actually runs the game simulation, so `fteqw-server` needs
-real access to the map/model/sound data in your paks to do that - not just
-`nginx`, which only needs them to hand out to browsers.
+QuakeWorld is a genuine client-server model: the server is authoritative and
+actually runs the game simulation, so `fteqw-server` needs real access to the
+map/model/sound data in your paks to do that - not just `nginx`, which only
+needs them to hand out to browsers.
 
 On the `fteqw-server` side specifically, `PAK_DIR` isn't bind-mounted
 straight onto its basedir (`/fte`) - that basedir also holds a `qw/` folder
@@ -603,3 +545,8 @@ built-in one, instead of silently failing to appear at all.
   `quakec/basemod` - see its `basemod.txt` for license terms. The actual
   game data (maps, models, textures, sounds) always comes from your own pak
   volume, never baked into any image here.
+
+## Other Projects
+
+- [CloudyDoom](https://github.com/BenMcLean/cloudydoom) - the same idea for
+  Doom: browser play against your own self-hosted server.

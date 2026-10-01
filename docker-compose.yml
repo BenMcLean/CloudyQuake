@@ -12,7 +12,13 @@ services:
     ports:
       - "${WEB_HTTP_PORT:-27501}:8080"
     environment:
-      WS_URL: ${WS_URL:?Set WS_URL to the externally-reachable websocket URL, e.g. wss://quakeworld.example.com}
+      # WebSocket-mode only (the alternative to WebRTC): the externally-
+      # reachable wss:// URL of fteqw-server. Not needed when SV_PORT_RTC is
+      # set - nginx/docker-entrypoint.sh fails fast if neither is.
+      WS_URL: ${WS_URL:-}
+      # Optional hostname shown in config.json's human-facing
+      # nativeClientCmd - see nginx/docker-entrypoint.sh.
+      SV_HOST: ${SV_HOST:-}
       # Shared password, gating both the web login (and pak downloads) and
       # joining the match itself - see nginx/auth.js and
       # fteqw-server/docker-entrypoint.sh. Optional - leave blank in .env
@@ -116,12 +122,12 @@ services:
       #    RTP, despite fteqw's own specs/hosting.txt saying "sv_port_rtp",
       #    which doesn't exist anywhere in its source - confirmed by
       #    reading engine/common/net_wins.c directly.)
-      #  - NET_ICE_BROKER: which broker to register with/connect through -
-      #    point this at your own ftemaster service (through a reverse
-      #    proxy - see the README) rather than fteqw's own
-      #    frag-net.com default.
       SV_PORT_RTC: ${SV_PORT_RTC:-}
-      NET_ICE_BROKER: ${NET_ICE_BROKER_INTERNAL:-${NET_ICE_BROKER:-}}
+      # Where fteqw-server itself finds the broker is not configurable: it
+      # is always the bundled ftemaster (see FTEMASTER_HOST/FTEMASTER_PORT in
+      # its docker-entrypoint.sh). NET_ICE_BROKER above is only the public
+      # URL browsers use.
+      FTEMASTER_PORT: ${FTEMASTER_PORT:-27950}
     volumes:
       # The dedicated server is authoritative - unlike CloudyDoom's
       # chocolate-server, which never touches the WAD at all, fteqw-server
