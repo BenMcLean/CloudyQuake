@@ -61,7 +61,14 @@ WORKDIR /src/engine
 # qcc-rel: fteqcc, the QuakeC compiler - used below (build time only, qw
 #   only) to compile quakec/basemod into gamecode, so the image ships with a
 #   working qwprogs.dat without depending on a separately-sourced file.
-RUN make FTE_TARGET=linux64 makelibs \
+# engine/Makefile fetches libpng from prdownloads.sourceforge.net, which is
+# often down or hanging (HTTP 522). The Makefile skips its own wget when the
+# tarball already exists, so pre-seed it from GitHub's tag archive (same
+# libpng-1.6.45/ layout, ships a generated configure). Keep the version in
+# sync with PNGVER in engine/Makefile if FTEQW_REF changes.
+RUN wget --tries=5 --retry-connrefused --waitretry=3 -O libpng-1.6.45.tar.gz \
+        https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.45.tar.gz \
+    && make FTE_TARGET=linux64 makelibs \
     && make -j"$(nproc)" FTE_TARGET=linux64 sv-rel qcc-rel
 
 # The dedicated server binary's exact filename varies with fteqw's own

@@ -31,7 +31,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN git clone --depth 1 --branch "$FTEQW_REF" https://github.com/fte-team/fteqw.git /src
 
 WORKDIR /src/engine
-RUN make FTE_TARGET=linux64 makelibs \
+# engine/Makefile fetches libpng from prdownloads.sourceforge.net, which is
+# often down or hanging (HTTP 522). The Makefile skips its own wget when the
+# tarball already exists, so pre-seed it from GitHub's tag archive (same
+# libpng-1.6.45/ layout, ships a generated configure). Keep the version in
+# sync with PNGVER in engine/Makefile if FTEQW_REF changes.
+RUN wget --tries=5 --retry-connrefused --waitretry=3 -O libpng-1.6.45.tar.gz \
+        https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.45.tar.gz \
+    && make FTE_TARGET=linux64 makelibs \
     && make -j"$(nproc)" FTE_TARGET=linux64 master-rel
 
 # Same "find by pattern, rename to something fixed" treatment as
