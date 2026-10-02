@@ -51,7 +51,7 @@ for gd in ${GAMEDIRS:-}; do
     link_gamedir "$gd" || echo "WARNING: GAMEDIRS entry '$gd' has no matching folder (any case) under /paks - skipping it." >&2
 done
 
-# fteqw-server runs as abc (PUID/PGID) and writes its own config/logs here.
+# fteqw-server runs as abc (PUID/PGID) and writes its own config here.
 mkdir -p /config/fte
 chown abc:abc /config/fte
 chown -h abc:abc "$BASEDIR"

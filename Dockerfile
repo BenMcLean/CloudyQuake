@@ -204,6 +204,6 @@ ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
 # WebSocket). 27950: ftemaster (tcp = signaling, udp = STUN).
 EXPOSE 8080 27500/udp 27500/tcp 27950/tcp 27950/udp
 
-# /config: fteqw's own config/logs. /paks: your retail game data (read-only
+# /config: fteqw's own config. /paks: your retail game data (read-only
 # is fine - nothing writes there).
 VOLUME /config

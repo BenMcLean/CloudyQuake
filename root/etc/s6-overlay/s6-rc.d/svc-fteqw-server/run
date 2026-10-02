@@ -55,7 +55,7 @@ fi
 # Forced flags run before SERVER_ARGS so that SERVER_ARGS's own +map/+set
 # commands execute afterward and aren't pre-empted.
 set -f
-set -- "$@" +set sv_port "$SV_PORT" +set sv_port_tcp "$SV_PORT_TCP" +set password "$PASSWORD" $SERVER_ARGS
+set -- "$@" +set log_enable 0 +set sv_port "$SV_PORT" +set sv_port_tcp "$SV_PORT_TCP" +set password "$PASSWORD" $SERVER_ARGS
 set +f
 
 export HOME=/config/fte

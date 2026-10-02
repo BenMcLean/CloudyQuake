@@ -61,7 +61,7 @@ services, `PUID`/`PGID`/`TZ` support, and a `/config` volume.
 A one-shot `init-cloudyquake-config` runs first: it validates settings,
 symlinks your gamedirs into fteqw's basedir and generates the web client's
 `config.json` base. Mounts: `/paks` (your game data, read-only is fine) and
-`/config` (fteqw's own config and logs).
+`/config` (fteqw's own config; logs go to `docker compose logs`, not here).
 
 Ports and hostnames are all in [Deploying](#deploying).
 
@@ -295,6 +295,13 @@ services:
     volumes:
       - ./config:/config
       - ./paks:/paks:ro
+    # Docker keeps container logs forever by default. This caps them at
+    # about 30 MB (3 files of 10 MB), oldest dropped first.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 ```
 
 **4. Start it.** In a terminal, inside the `cloudyquake` folder:
@@ -330,6 +337,13 @@ docker compose down              # stop and remove the container
 docker compose pull              # fetch a newer image...
 docker compose up -d             # ...then restart on it
 ```
+
+Logs: everything goes to the container's output, nothing is written to log
+files. The `logging:` block in the example above caps them at about 30 MB. If
+you start the container with `docker run` instead, add
+`--log-opt max-size=10m --log-opt max-file=3`. Only failed web requests are
+logged. `+set net_ice_debug 2` in `SERVER_ARGS` is very noisy, so use it only
+while debugging WebRTC.
 
 **Other games.** Change `GAME`, `BASE_GAMEDIR` and the map in `SERVER_ARGS`,
 put the matching game files in that folder under `paks/`, then run
