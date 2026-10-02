@@ -1,15 +1,13 @@
 #!/bin/sh
 set -eu
 
-# Either WebRTC (SV_PORT_RTC + NET_ICE_BROKER) or WebSocket (WS_URL) has to be
-# configured, or the browser client has nothing to connect to.
+# Either WebRTC (NET_ICE_BROKER) or WebSocket (WS_URL) has to be configured,
+# or the browser client has nothing to connect to. NET_ICE_BROKER is the
+# WebRTC switch; NET_ICE_NAME (the server's registered name) has a default.
 WS_URL="${WS_URL:-}"
-if [ -z "${SV_PORT_RTC:-}" ] && [ -z "$WS_URL" ]; then
-    echo "ERROR: set SV_PORT_RTC and NET_ICE_BROKER (WebRTC, recommended) or WS_URL (WebSocket), e.g. WS_URL=wss://quakeserver.example.com" >&2
-    exit 1
-fi
-if [ -n "${SV_PORT_RTC:-}" ] && [ -z "${NET_ICE_BROKER:-}" ]; then
-    echo "ERROR: SV_PORT_RTC is set but NET_ICE_BROKER is not - set it to the public wss:// URL of your broker, e.g. wss://quakebroker.example.com/" >&2
+NET_ICE_NAME="${NET_ICE_NAME:-/cloudyquake}"
+if [ -z "${NET_ICE_BROKER:-}" ] && [ -z "$WS_URL" ]; then
+    echo "ERROR: set NET_ICE_BROKER (WebRTC, recommended, e.g. wss://quakebroker.example.com/) or WS_URL (WebSocket, e.g. wss://quakeserver.example.com)" >&2
     exit 1
 fi
 export WS_URL
@@ -98,15 +96,15 @@ fi
 NATIVE_CMD="fteqw ${GAME_ARGS}${PASSWORD_ARG}+connect ${WS_HOST}:${SV_PORT:-27500}"
 export NATIVE_CMD_JSON=$(json_escape "$NATIVE_CMD")
 
-# Opt-in WebRTC path, mirroring fteqw-server's own SV_PORT_RTC/
+# Opt-in WebRTC path, mirroring fteqw-server's own NET_ICE_NAME/
 # NET_ICE_BROKER (set once from the same .env vars in docker-compose.yml,
 # same "set once, passed to both services" convention as GAMEDIRS/
-# BASE_GAMEDIR) - see the README's WebRTC section. When SV_PORT_RTC is
+# BASE_GAMEDIR) - see the README's WebRTC section. When NET_ICE_BROKER is
 # blank (default), brokerConnect is null in config.json and site/app.js
 # falls back to exactly today's "+connect wsUrl" behavior.
 BROKER_CONNECT_JSON="null"
-if [ -n "${SV_PORT_RTC:-}" ]; then
-    BROKER_CONNECT_JSON="\"$(json_escape "$SV_PORT_RTC")\""
+if [ -n "${NET_ICE_BROKER:-}" ]; then
+    BROKER_CONNECT_JSON="\"$(json_escape "$NET_ICE_NAME")\""
 fi
 export BROKER_CONNECT_JSON
 export ICE_BROKER_JSON="\"$(json_escape "${NET_ICE_BROKER:-}")\""

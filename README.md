@@ -28,7 +28,7 @@ or any QuakeC mod's own paks) is a docker volume that you fill yourself - see
       Browser --HTTPS--> nginx        (Basic Auth; serves the client + paks)
 
  2. Then the browser plays over ONE of these, chosen by the admin
-    (SV_PORT_RTC set = A, blank = B):
+    (NET_ICE_BROKER set = A, blank = B):
 
     A. WebRTC - UDP, lower latency under packet loss (recommended)
 
@@ -58,7 +58,7 @@ Three services:
 |---|---|
 | `nginx` | Serves the web client (fteqw's own Emscripten/WebGL port, built from [`fte-team/fteqw`](https://github.com/fte-team/fteqw) at build time - see `FTEQW_REF`) behind HTTP Basic Auth. Also serves your pak files, so the auth gate covers those too. |
 | `fteqw-server` | A real, unmodified fteqw dedicated server (built from the same pinned `FTEQW_REF`), running standard QuakeWorld gamecode compiled from fteqw's own openly-licensed `quakec/basemod`. Serves WebRTC, WebSocket and native UDP clients. |
-| `ftemaster` | The WebRTC/ICE broker (fteqw's own `ftemaster` binary). Only relays the handshake that lets browsers and `fteqw-server` find each other. Runs either way but does nothing unless you set `SV_PORT_RTC`. |
+| `ftemaster` | The WebRTC/ICE broker (fteqw's own `ftemaster` binary). Only relays the handshake that lets browsers and `fteqw-server` find each other. Runs either way but does nothing unless you set `NET_ICE_BROKER`. |
 
 Ports and hostnames are all in [Deploying](#deploying).
 
@@ -185,7 +185,7 @@ affected.
 git clone <this repo's URL>
 cd cloudyquake
 cp .env.example .env
-$EDITOR .env   # set SV_PORT_RTC and NET_ICE_BROKER at minimum, and PASSWORD for a real deployment
+$EDITOR .env   # set NET_ICE_BROKER (or WS_URL) at minimum, and PASSWORD for a real deployment
 mkdir -p paks/id1 && cp /path/to/your/pak0.pak /path/to/your/pak1.pak paks/id1/   # see "Getting paks" below - data1/ instead of id1/ for Hexen II
 docker compose up -d --build
 ```
@@ -201,10 +201,10 @@ Everything is configured via environment variables at container start, not
 baked into any image - see `.env.example` for the full list with defaults.
 The ones you can't skip:
 
-- `SV_PORT_RTC` and `NET_ICE_BROKER` - turn on WebRTC, the recommended
-  transport. See [Deploying](#deploying) for values.
+- `NET_ICE_BROKER` - turns on WebRTC, the recommended transport. See
+  [Deploying](#deploying) for values.
 - *or*, as the alternative, `WS_URL` - the public `wss://` URL of
-  `fteqw-server`'s WebSocket port, with `SV_PORT_RTC` left blank. See
+  `fteqw-server`'s WebSocket port, with `NET_ICE_BROKER` left blank. See
   [Alternative: WebSocket only](#alternative-websocket-only).
 
 And the ones you should set unless you have a specific reason not to:
@@ -425,22 +425,23 @@ path to each other. See fteqw's own `specs/hosting.txt`/`specs/browser.txt`
 `.env`:
 
 ```
-SV_PORT_RTC=/myserver
 NET_ICE_BROKER=wss://quakebroker.example.com/
 SV_HOST=quakeserver.example.com
 SERVER_ARGS=... +set net_ice_servers stun:stun.l.google.com:19302
 CLIENT_ARGS=+set net_ice_servers stun:stun.l.google.com:19302
 ```
 
-- `SV_PORT_RTC` - a name for `fteqw-server` to register with the broker;
-  clients then `connect /myserver`. This is fteqw's `sv_port_rtc` cvar
-  (**RTC, not RTP** - fteqw's `specs/hosting.txt` says `sv_port_rtp`, but
-  that cvar doesn't exist in the source; an upstream doc typo). Setting it is
-  what switches the browser from WebSocket to WebRTC.
 - `NET_ICE_BROKER` - the public URL browsers use to reach the broker
-  (through NPM, on `443`). Required with `SV_PORT_RTC`. `fteqw-server` itself
-  always talks to the bundled `ftemaster` directly over the container
-  network, so there's no matching setting for that side.
+  (through NPM, on `443`). **Setting it is what switches the browser from
+  WebSocket to WebRTC.** `fteqw-server` itself always talks to the bundled
+  `ftemaster` directly over the container network, so there's no matching
+  setting for that side.
+- `NET_ICE_NAME` - optional, default `/cloudyquake`. The name `fteqw-server`
+  registers with the broker; clients then `connect /cloudyquake`. Only
+  change it if you run several servers on one broker. This is fteqw's
+  `sv_port_rtc` cvar
+  (**RTC, not RTP** - fteqw's `specs/hosting.txt` says `sv_port_rtp`, but
+  that cvar doesn't exist in the source; an upstream doc typo).
 - `SV_HOST` - optional; the hostname shown in the ready-to-paste native
   client command. Must resolve to the server's UDP port.
 - `net_ice_servers` supplies a real STUN server to both sides. Normally
@@ -467,7 +468,7 @@ no automatic fallback - use the WebSocket alternative below for everyone.
 ### Alternative: WebSocket only
 
 Simpler, works on any network, but subject to the TCP stalls described
-above. Leave `SV_PORT_RTC` and `NET_ICE_BROKER` blank, and set:
+above. Leave `NET_ICE_BROKER` blank, and set:
 
 ```
 WS_URL=wss://quakeserver.example.com

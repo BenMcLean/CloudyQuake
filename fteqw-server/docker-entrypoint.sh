@@ -168,24 +168,26 @@ SERVER_ARGS="${SERVER_ARGS:-}"
 # comment above and specs/hosting.txt itself both say "sv_port_rtp", which
 # doesn't exist anywhere in fteqw's own source; confirmed by reading
 # engine/common/net_wins.c's SV_PortRTC_Callback/sv_port_rtc directly).
-# Both blank by default, meaning no change from today's UDP/WSS-only
-# behavior - only appended when actually set, same reasoning as
+# Off by default, meaning no change from today's UDP/WSS-only behavior -
+# only appended when actually enabled, same reasoning as
 # SV_PORT/SV_PORT_TCP/PASSWORD below not forcing an empty "+set" either.
 #
-# SV_PORT_RTC: this server's broker-registered name (e.g. "/myserver") -
-#   clients then "connect /myserver" over ICE/holepunching instead of a
+# NET_ICE_BROKER (the public URL browsers use, from .env) is only an on/off
+#   switch here: setting it turns WebRTC on.
+# NET_ICE_NAME: this server's broker-registered name (default "/cloudyquake") -
+#   clients then "connect /cloudyquake" over ICE/holepunching instead of a
 #   direct UDP/WS(S) address.
 # The broker is always the bundled ftemaster, reached directly over the
 # container network (never through the public reverse proxy), so its
 # address is an internal detail, not user configuration. FTEMASTER_HOST is
 # "ftemaster" under docker-compose; a single-container image would run
 # ftemaster alongside this process, i.e. "localhost".
-SV_PORT_RTC="${SV_PORT_RTC:-}"
+NET_ICE_NAME="${NET_ICE_NAME:-/cloudyquake}"
 FTEMASTER_HOST="${FTEMASTER_HOST:-ftemaster}"
 FTEMASTER_PORT="${FTEMASTER_PORT:-27950}"
-NET_ICE_BROKER=""
-if [ -n "$SV_PORT_RTC" ]; then
-    NET_ICE_BROKER="${FTEMASTER_HOST}:${FTEMASTER_PORT}"
+BROKER_ADDR=""
+if [ -n "${NET_ICE_BROKER:-}" ]; then
+    BROKER_ADDR="${FTEMASTER_HOST}:${FTEMASTER_PORT}"
 fi
 # net_ice_broker MUST come before sv_port_rtc: setting sv_port_rtc
 # immediately opens the broker connection using whatever net_ice_broker is
@@ -193,11 +195,9 @@ fi
 # server only understands tls:// or tcp:// broker URLs (not ws(s)://), and
 # can't resolve a trailing "/" ("tcp://host:27950/" silently never
 # connects - "tcp://host:27950" does).
-if [ -n "$NET_ICE_BROKER" ]; then
-    set -- "$@" +set net_ice_broker "tcp://$NET_ICE_BROKER"
-fi
-if [ -n "$SV_PORT_RTC" ]; then
-    set -- "$@" +set sv_port_rtc "$SV_PORT_RTC"
+if [ -n "$BROKER_ADDR" ]; then
+    set -- "$@" +set net_ice_broker "tcp://$BROKER_ADDR"
+    set -- "$@" +set sv_port_rtc "$NET_ICE_NAME"
 fi
 
 # chocolate-doom's stdout-buffering bug (see CloudyDoom's doom-server

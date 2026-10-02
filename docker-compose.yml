@@ -13,7 +13,7 @@ services:
       - "${WEB_HTTP_PORT:-27501}:8080"
     environment:
       # WebSocket-mode only (the alternative to WebRTC): the externally-
-      # reachable wss:// URL of fteqw-server. Not needed when SV_PORT_RTC is
+      # reachable wss:// URL of fteqw-server. Not needed when NET_ICE_NAME is
       # set - nginx/docker-entrypoint.sh fails fast if neither is.
       WS_URL: ${WS_URL:-}
       # Optional hostname shown in config.json's human-facing
@@ -51,10 +51,11 @@ services:
       # nginx never talks raw UDP/WS to fteqw-server itself.
       SV_PORT: ${SV_PORT:-27500}
       # Opt-in WebRTC path - see ftemaster service and the README's WebRTC
-      # section. Set together, same values as fteqw-server's own below.
-      # When SV_PORT_RTC is blank (default), nginx falls back to today's
+      # section. Setting NET_ICE_BROKER turns it on; NET_ICE_NAME is just the
+      # name and has a default. Same values as fteqw-server's own below.
+      # When NET_ICE_BROKER is blank (default), nginx falls back to the
       # wsUrl-only connect behavior - see nginx/docker-entrypoint.sh.
-      SV_PORT_RTC: ${SV_PORT_RTC:-}
+      NET_ICE_NAME: ${NET_ICE_NAME:-/cloudyquake}
       NET_ICE_BROKER: ${NET_ICE_BROKER:-}
     # Runs as nginx's own built-in user (101:101) by default - matches what
     # nginx.conf's lack of a "user" directive already implies. Override
@@ -115,18 +116,22 @@ services:
       # README's WebRTC section and fteqw's own specs/hosting.txt ("WebRTC
       # / ICE"). Both blank by default, meaning no change from today's
       # UDP/WSS-only behavior:
-      #  - SV_PORT_RTC: this server's broker-registered name (e.g.
-      #    "/myserver") - native and browser clients then "connect
-      #    /myserver" over ICE/holepunching instead of a direct
+      #  - NET_ICE_BROKER (below): setting it is what turns WebRTC on. The
+      #    server only uses it as an on/off switch - it always reaches the
+      #    broker at the bundled ftemaster directly.
+      #  - NET_ICE_NAME: this server's broker-registered name (default
+      #    "/cloudyquake") - native and browser clients then "connect
+      #    /cloudyquake" over ICE/holepunching instead of a direct
       #    UDP/WS(S) address. (fteqw's own cvar is "sv_port_rtc" - RTC, not
       #    RTP, despite fteqw's own specs/hosting.txt saying "sv_port_rtp",
       #    which doesn't exist anywhere in its source - confirmed by
       #    reading engine/common/net_wins.c directly.)
-      SV_PORT_RTC: ${SV_PORT_RTC:-}
+      NET_ICE_NAME: ${NET_ICE_NAME:-/cloudyquake}
       # Where fteqw-server itself finds the broker is not configurable: it
       # is always the bundled ftemaster (see FTEMASTER_HOST/FTEMASTER_PORT in
-      # its docker-entrypoint.sh). NET_ICE_BROKER above is only the public
-      # URL browsers use.
+      # its docker-entrypoint.sh). This value is only the on/off switch here;
+      # the public URL browsers use comes from nginx's copy of it.
+      NET_ICE_BROKER: ${NET_ICE_BROKER:-}
       FTEMASTER_PORT: ${FTEMASTER_PORT:-27950}
     volumes:
       # The dedicated server is authoritative - unlike CloudyDoom's
@@ -155,8 +160,8 @@ services:
   # (TCP), avoiding TCP's head-of-line-blocking stalls on packet loss. See
   # the README's WebRTC section and fteqw's own specs/hosting.txt ("WebRTC
   # / ICE"). Holds no game state - unlike fteqw-server, it needs no
-  # PAK_DIR mount. Always built/started, but inert unless SV_PORT_RTP/
-  # NET_ICE_BROKER above are actually set.
+  # PAK_DIR mount. Always built/started, but inert unless
+  # NET_ICE_BROKER above is actually set.
   ftemaster:
     build:
       context: ./ftemaster
