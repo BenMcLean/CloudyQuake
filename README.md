@@ -462,8 +462,12 @@ on "Waiting for broker connection" the broker Proxy Host (or its Websockets
 toggle) is the problem; if it reaches `connecting` but times out, UDP `27500`
 isn't reaching the server.
 
-If your players' networks block UDP, WebRTC can't work for them and there is
-no automatic fallback - use the WebSocket alternative below for everyone.
+If a player's network blocks UDP, WebRTC can't work for them and there is no
+automatic fallback. Instead, set `WS_URL` as well (see the WebSocket
+alternative below) and have them add `?ws` to the page address, e.g.
+`https://quake.example.com/?ws`. That makes their browser connect over
+WebSocket while everyone else keeps using WebRTC. `?ws` is ignored if
+`WS_URL` isn't set.
 
 ### Alternative: WebSocket only
 

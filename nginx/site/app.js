@@ -148,8 +148,14 @@ fetch("config.json", { cache: "no-store" })
         // into the WebRTC path (NET_ICE_BROKER/NET_ICE_NAME - see the
         // README's WebRTC section and nginx/docker-entrypoint.sh). When
         // unset, this is exactly today's "+connect wsUrl" behavior.
-        const brokerArgs = config.iceBroker ? ["+set", "net_ice_broker", config.iceBroker] : [];
-        const connectTarget = config.brokerConnect || config.wsUrl;
+        //
+        // "?ws" in the page URL forces WebSocket even when WebRTC is
+        // configured, for players whose network blocks it. Ignored when
+        // wsUrl isn't set, since there'd be nothing to fall back to.
+        const forceWs = new URLSearchParams(location.search).has("ws") && !!config.wsUrl;
+        const useRtc = !!config.brokerConnect && !forceWs;
+        const brokerArgs = useRtc && config.iceBroker ? ["+set", "net_ice_broker", config.iceBroker] : [];
+        const connectTarget = useRtc ? config.brokerConnect : config.wsUrl;
 
         Module.arguments = gameArgs
             .concat(Array.isArray(config.clientArgs) ? config.clientArgs : [])
