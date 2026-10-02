@@ -116,7 +116,7 @@ fetch("config.json", { cache: "no-store" })
         // nothing to set, so fteqw falls back to its own defaults.
         //
         // "+set name X"/"+set password X", not bare "+name X"/"+password
-        // X" - matches nginx/docker-entrypoint.sh's own nativeClientCmd
+        // X" - matches init-cloudyquake-config's own nativeClientCmd
         // convenience string (see its PASSWORD_ARG), which has always used
         // the explicit "+set" form. The bare form relies on fteqw falling
         // an unrecognised startup command through to a same-named cvar,
@@ -128,7 +128,7 @@ fetch("config.json", { cache: "no-store" })
         const nameArgs = config.playerName ? ["+set", "name", config.playerName] : [];
         const passArgs = config.password ? ["+set", "password", config.password] : [];
         // config.gamedirs mirrors fteqw-server's own extra "-game GAMEDIRS"
-        // stack (see its docker-entrypoint.sh), in the same order - a
+        // stack (see svc-fteqw-server), in the same order - a
         // mission pack/mod/map pack's client-visible assets need this to
         // actually get searched, same as the server needs it for its own
         // gamecode/assets.
@@ -146,7 +146,7 @@ fetch("config.json", { cache: "no-store" })
         // userinfo before connecting, not after).
         // brokerConnect/iceBroker are only present when the server opted
         // into the WebRTC path (NET_ICE_BROKER/NET_ICE_NAME - see the
-        // README's WebRTC section and nginx/docker-entrypoint.sh). When
+        // README's WebRTC section and init-cloudyquake-config). When
         // unset, this is exactly today's "+connect wsUrl" behavior.
         //
         // "?ws" in the page URL forces WebSocket even when WebRTC is

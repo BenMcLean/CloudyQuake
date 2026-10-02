@@ -1,0 +1,110 @@
+#!/usr/bin/with-contenv bash
+# One-shot setup, ported from the old nginx/ and fteqw-server/
+# docker-entrypoint.sh scripts: validates config, symlinks gamedirs from
+# /paks into fteqw's basedir, and generates config.base.json for
+# nginx/auth.js. Runs as root, before any svc-* starts.
+set -eu
+
+BASEDIR=/fte
+DATA_DIR=/paks
+
+WS_URL="${WS_URL:-}"
+NET_ICE_NAME="${NET_ICE_NAME:-/cloudyquake}"
+if [ -z "${NET_ICE_BROKER:-}" ] && [ -z "$WS_URL" ]; then
+    echo "ERROR: set NET_ICE_BROKER (WebRTC, recommended, e.g. wss://quakebroker.example.com/) or WS_URL (WebSocket, e.g. wss://quakeserver.example.com)" >&2
+    exit 1
+fi
+export WS_URL
+
+# Gamedirs are matched against /paks case-insensitively but always
+# symlinked in under their canonical lowercase name - see the matching
+# comment in nginx/auth.js. fteqw (and the browser's virtual filesystem)
+# expect lowercase "id1"/"pak0.pak" exactly, while GOG/Steam installs ship
+# "Id1".
+link_gamedir() {
+    canon="$1"
+    [ -d "$DATA_DIR" ] || return 1
+    for d in "$DATA_DIR"/*/; do
+        [ -d "$d" ] || continue
+        name=$(basename "$d")
+        lc_name=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')
+        if [ "$lc_name" = "$canon" ]; then
+            target="$BASEDIR/$canon"
+            # A real directory already there (only qw/, baked into the
+            # image) is replaced so your own copy takes priority.
+            if [ -e "$target" ] && [ ! -L "$target" ]; then
+                rm -rf "$target"
+            fi
+            ln -sfn "$d" "$target"
+            return 0
+        fi
+    done
+    return 1
+}
+
+BASE_GAMEDIR="${BASE_GAMEDIR:-id1}"
+if ! link_gamedir "$BASE_GAMEDIR"; then
+    echo "WARNING: no $BASE_GAMEDIR/ (any case) folder found under /paks - the server has no base game data and will fail to load a map. See the README's 'Getting paks' section." >&2
+fi
+for gd in ${GAMEDIRS:-}; do
+    gd=$(printf '%s' "$gd" | tr '[:upper:]' '[:lower:]')
+    link_gamedir "$gd" || echo "WARNING: GAMEDIRS entry '$gd' has no matching folder (any case) under /paks - skipping it." >&2
+done
+
+# fteqw-server runs as abc (PUID/PGID) and writes its own config/logs here.
+mkdir -p /config/fte
+chown abc:abc /config/fte
+chown -h abc:abc "$BASEDIR"
+chown -R abc:abc "$BASEDIR/qw" 2>/dev/null || true
+
+json_escape() {
+    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+# CLIENT_ARGS: raw whitespace-separated fteqw client switches/cvars, the
+# client-side counterpart to SERVER_ARGS. See .env.example.
+CLIENT_ARGS_JSON="["
+first=1
+set -f
+for arg in ${CLIENT_ARGS:-}; do
+    if [ "$first" -eq 1 ]; then first=0; else CLIENT_ARGS_JSON="${CLIENT_ARGS_JSON},"; fi
+    CLIENT_ARGS_JSON="${CLIENT_ARGS_JSON}\"$(json_escape "$arg")\""
+done
+set +f
+export CLIENT_ARGS_JSON="${CLIENT_ARGS_JSON}]"
+
+# nativeClientCmd: a convenience string for humans only (site/app.js never
+# reads it) - see the README's "Connecting" section.
+WS_HOST="${SV_HOST:-}"
+if [ -z "$WS_HOST" ] && [ -n "$WS_URL" ]; then
+    WS_HOST=$(printf '%s' "$WS_URL" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##; s#[:/].*##')
+fi
+[ -n "$WS_HOST" ] || WS_HOST="<your-server-hostname>"
+GAME_ARGS=""
+for gd in ${GAMEDIRS:-}; do
+    gd=$(printf '%s' "$gd" | tr '[:upper:]' '[:lower:]')
+    GAME_ARGS="${GAME_ARGS}-game ${gd} "
+done
+# The real PASSWORD, not a placeholder: this only reaches someone who
+# already passed the Basic Auth gate (see nginx/auth.js).
+PASSWORD_ARG=""
+if [ -n "${PASSWORD:-}" ]; then
+    PASSWORD_ARG="+set password \"${PASSWORD}\" "
+fi
+NATIVE_CMD="fteqw ${GAME_ARGS}${PASSWORD_ARG}+connect ${WS_HOST}:${SV_PORT:-27500}"
+export NATIVE_CMD_JSON=$(json_escape "$NATIVE_CMD")
+
+# brokerConnect is null when NET_ICE_BROKER is blank, and site/app.js then
+# falls back to "+connect wsUrl".
+BROKER_CONNECT_JSON="null"
+if [ -n "${NET_ICE_BROKER:-}" ]; then
+    BROKER_CONNECT_JSON="\"$(json_escape "$NET_ICE_NAME")\""
+fi
+export BROKER_CONNECT_JSON
+export ICE_BROKER_JSON="\"$(json_escape "${NET_ICE_BROKER:-}")\""
+
+# Everything in config.json except playerName/password/gameFiles/gamedirs,
+# which nginx/auth.js fills in per request.
+mkdir -p /run/cloudyquake
+envsubst '${WS_URL} ${CLIENT_ARGS_JSON} ${NATIVE_CMD_JSON} ${BROKER_CONNECT_JSON} ${ICE_BROKER_JSON}' \
+    < /defaults/config.base.json.template > /run/cloudyquake/config.base.json

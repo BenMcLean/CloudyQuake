@@ -1,0 +1,11 @@
+#!/usr/bin/with-contenv bash
+# The WebRTC/ICE broker. Only needed when NET_ICE_BROKER is set; otherwise
+# it's brought down (once) rather than left running idle.
+if [ -z "${NET_ICE_BROKER:-}" ]; then
+    exec s6-svc -Od .
+fi
+
+PORT="${FTEMASTER_PORT:-27950}"
+exec s6-setuidgid abc stdbuf -oL -eL /usr/local/bin/ftemaster \
+    +set sv_masterport "$PORT" \
+    +set sv_masterport_tcp "$PORT"

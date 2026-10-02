@@ -6,7 +6,7 @@
 // startup arg).
 //
 // PASSWORD is also the QuakeWorld server's own join password (see
-// fteqw-server/docker-entrypoint.sh) - HTTP Basic Auth can't reach the
+// svc-fteqw-server) - HTTP Basic Auth can't reach the
 // WebSocket handshake at all (browsers give JS no way to attach an
 // Authorization header to one), so the same secret is handed back to the
 // already-authenticated browser in /config.json instead, for app.js to
@@ -91,7 +91,7 @@ function authenticate(r) {
 var PAK_ROOT = '/paks';
 
 // Which PAK_ROOT subfolder is always served, regardless of GAMEDIRS -
-// mirrors fteqw-server/docker-entrypoint.sh's own BASE_GAMEDIR (same env
+// mirrors svc-fteqw-server's own BASE_GAMEDIR (same env
 // var), which symlinks the same-named PAK_DIR subfolder in as fteqw's
 // implicit default gamedir. This is purely about which folder our own pak
 // volume convention treats as "the base game" - it has nothing to do with
@@ -109,7 +109,7 @@ function baseGamedir() {
 // for instance), but the browser client's sandboxed virtual filesystem has
 // no OS-level case-insensitive fallback to lean on the way a native build
 // does, so this - and listGameFiles()'s own filename matching below - is
-// what stands in for that. Mirrors fteqw-server/docker-entrypoint.sh's own
+// what stands in for that. Mirrors svc-fteqw-server's own
 // link_gamedir(), which does the same match for the same reason.
 function findGamedirRealName(canon) {
     var fs = require('fs');
@@ -171,7 +171,7 @@ function walkGameFiles(canon, realName, dir, relPrefix, out) {
 // distributed their own files separately, rather than everything packed
 // into one pak0.pak) - is already their call, same as it is for
 // fteqw-server, which loads everything in these same folders regardless of
-// type or depth (see its docker-entrypoint.sh). A missing gamedir (e.g. a
+// type or depth (see svc-fteqw-server). A missing gamedir (e.g. a
 // GAMEDIRS entry with no matching folder under PAK_DIR, any case) just
 // yields no files rather than an error - config() still returns
 // successfully with whatever it did find.
@@ -210,7 +210,7 @@ function servePaks(r) {
 
 // location = /config.json - regenerated per-request so it can embed the
 // requesting client's own player name. The rest of the fields come from
-// config.base.json, written once at container start by docker-entrypoint.sh
+// config.base.json, written once at container start by init-cloudyquake-config
 // (see CONFIG_BASE_PATH there) from the same env vars as before.
 function config(r) {
     var auth = authenticate(r);
@@ -222,7 +222,7 @@ function config(r) {
     var fs = require('fs');
     var base;
     try {
-        base = JSON.parse(fs.readFileSync('/etc/cloudyquake/config.base.json'));
+        base = JSON.parse(fs.readFileSync('/run/cloudyquake/config.base.json'));
     } catch (e) {
         r.return(500, 'config.base.json missing or invalid: ' + e.message + '\n');
         return;
@@ -242,7 +242,7 @@ function config(r) {
     base.baseGamedir = baseGamedir();
 
     // The base gamedir (BASE_GAMEDIR, "id1" by default) is always served;
-    // GAMEDIRS (same var fteqw-server reads, see its docker-entrypoint.sh)
+    // GAMEDIRS (same var fteqw-server reads, see svc-fteqw-server)
     // optionally adds any number of further gamedirs (a mission pack, a
     // mod, a map pack, ...) on top, in order, matching the extra "-game"
     // flags it stacks server-side. Discovered fresh per-request (cheap - a

@@ -1,0 +1,6 @@
+#!/usr/bin/with-contenv bash
+# Master runs as root; nginx.conf's "user abc;" drops the workers to
+# PUID/PGID so they can read /paks. with-contenv supplies the PASSWORD,
+# USE_LOGIN_NAME, GAMEDIRS and BASE_GAMEDIR that nginx.conf's "env"
+# directives pass on to auth.js.
+exec nginx -g 'daemon off;'

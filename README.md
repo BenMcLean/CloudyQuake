@@ -1,16 +1,16 @@
 # CloudyQuake
 
-Multiplayer QuakeWorld (and friends), playable straight in the browser and
-hosted on your own dedicated server. For the people you invite to play: no
-client install, no router config, just a URL and a password. Everything here
-is open source and runs as a docker-compose stack.
+Multiplayer QuakeW, playable straight in the browser and
+hosted on your own dedicated server. Supports Quake 1, 2 and 3.
+For the people you invite to play: no client install, no router config, just a URL and a password.
+Everything here is open source and runs as a docker-compose stack.
 
 The "no setup" experience is only true for players - **you, running the
 server, still need to expose it to the internet**, same as hosting any other
 self-hosted service. [Deploying](#deploying) lists every hostname and port
 involved in one place.
 
-Native QuakeWorld clients (fteqw, or any other QW-compatible engine) can also
+Native clients (fteqw, or any other compatible engine) can also
 connect directly to the same server and play alongside the browser players -
 see [Connecting](#connecting).
 
@@ -47,28 +47,31 @@ or any QuakeC mod's own paks) is a docker volume that you fill yourself - see
       Native client --UDP--> fteqw-server
 ```
 
-`fteqw-server` is a real QuakeWorld dedicated server that speaks WebRTC,
-WebSocket and plain UDP natively, so no separate translator service is
-needed. It is authoritative and actually loads your pak data to run the game -
-see [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers).
+Everything runs in **one container**, built in the style of the
+[linuxserver.io](https://www.linuxserver.io/) images: an Ubuntu base with
+[s6-overlay](https://github.com/just-containers/s6-overlay) supervising three
+services, `PUID`/`PGID`/`TZ` support, and a `/config` volume.
 
-Three services:
-
-| Service | What it is |
+| Service (s6) | What it is |
 |---|---|
-| `nginx` | Serves the web client (fteqw's own Emscripten/WebGL port, built from [`fte-team/fteqw`](https://github.com/fte-team/fteqw) at build time - see `FTEQW_REF`) behind HTTP Basic Auth. Also serves your pak files, so the auth gate covers those too. |
-| `fteqw-server` | A real, unmodified fteqw dedicated server (built from the same pinned `FTEQW_REF`), running standard QuakeWorld gamecode compiled from fteqw's own openly-licensed `quakec/basemod`. Serves WebRTC, WebSocket and native UDP clients. |
-| `ftemaster` | The WebRTC/ICE broker (fteqw's own `ftemaster` binary). Only relays the handshake that lets browsers and `fteqw-server` find each other. Runs either way but does nothing unless you set `NET_ICE_BROKER`. |
+| `svc-nginx` | Serves the web client (fteqw's own Emscripten/WebGL port, built from [`fte-team/fteqw`](https://github.com/fte-team/fteqw) at build time - see `FTEQW_REF`) behind HTTP Basic Auth. Also serves your pak files, so the auth gate covers those too. |
+| `svc-fteqw-server` | A real, unmodified fteqw dedicated server (built from the same pinned `FTEQW_REF`), running standard QuakeWorld gamecode compiled from fteqw's own openly-licensed `quakec/basemod`. Serves WebRTC, WebSocket and native UDP clients. |
+| `svc-ftemaster` | The WebRTC/ICE broker (fteqw's own `ftemaster` binary). Only relays the handshake that lets browsers and `fteqw-server` find each other. Only runs when `NET_ICE_BROKER` is set. |
+
+A one-shot `init-cloudyquake-config` runs first: it validates settings,
+symlinks your gamedirs into fteqw's basedir and generates the web client's
+`config.json` base. Mounts: `/paks` (your game data, read-only is fine) and
+`/config` (fteqw's own config and logs).
 
 Ports and hostnames are all in [Deploying](#deploying).
 
 ## Supported games
 
-`GAME` (default `qw`) picks which game the `fteqw-server` image is actually
-*built* for, as well as which engine-mode flag `docker-entrypoint.sh` forces
-on at startup - see `fteqw-server/Dockerfile`. Changing it needs a rebuild
-(`docker compose up -d --build`), not just a restart, since it changes what
-gamecode gets compiled into the image.
+The same image supports every game. `GAME` (default `qw`) is a plain runtime
+environment variable that picks which engine-mode flag `svc-fteqw-server`
+forces on at startup; the gamecode for all supported games is already baked
+into the image (see the `Dockerfile`), so switching games is a restart, not
+a rebuild.
 
 `SERVER_ARGS` is a raw passthrough of fteqw's own dedicated-server command
 line switches/cvars on top of whatever `GAME` already forced on, so
@@ -87,9 +90,9 @@ agree, same as they would running fteqw natively outside Docker.
 ### Quake (1996)
 
 **QuakeWorld** (the default: `GAME=qw`, `BASE_GAMEDIR=id1`, `SERVER_ARGS`
-unset) - the one game this stack bakes gamecode for, compiled from fteqw's
-own openly-licensed `quakec/basemod` into the `fteqw-server` image at
-build time (see [Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers)).
+unset) - gamecode compiled from fteqw's
+own openly-licensed `quakec/basemod` into the image at
+build time (see [Why fteqw-server needs your paks too](#why-fteqw-server-needs-your-paks-too)).
 QuakeWorld was never part of any retail Quake release, so there's nothing
 to source this gamecode from other than compiling it - everything else
 below instead comes entirely from your own pak volume, same as any
@@ -116,12 +119,12 @@ runs in the same mode (see `.env.example`).
 
 The base game (`GAME=quake2`, `BASE_GAMEDIR=baseq2`) is supported via
 [Yamagi Quake II](https://github.com/yquake2/yquake2) (GPLv2, pinned to a
-fixed release tag in `fteqw-server/Dockerfile`): unlike QuakeWorld/Hexen
+fixed release tag in the `Dockerfile`): unlike QuakeWorld/Hexen
 II's QuakeC, Quake II's gamecode is a natively-compiled shared library
 that fteqw `dlopen()`s at runtime rather than
-bundling itself, so `GAME=quake2` builds one from yquake2's `src/game/` -
+bundling itself, so the image's build compiles one from yquake2's `src/game/` -
 just the gamecode, not its client/server/renderer, which this project has
-no use for - and bakes it into the `fteqw-server` image the same general
+no use for - and bakes it into the image the same general
 way `quakec/basemod` is baked in for QuakeWorld. `BASE_GAMEDIR=baseq2`
 matters here beyond the usual pak-volume convention: the baked gamecode
 library's own filename embeds that exact gamedir name, so it has to match.
@@ -177,23 +180,174 @@ affected.
 
 ### Quake III Arena (1999)
 
-**Not supported yet**. fteqw does have Quake III support, but it is not implemented here yet. Coming soon!
+`GAME=quake3`, `BASE_GAMEDIR=baseq3`, with `baseq3/pak0.pk3` (and the other
+`pak*.pk3` files from a retail install) in your `PAK_DIR`. fteqw's Quake III
+support (including its bot library) is already part of the stock engine and
+the browser client, so nothing extra is built. The game's QVMs come from your
+own pk3s. Browsers download every pk3 in `baseq3/`, which is about 500MB for
+a retail install, so the first load is slow. Don't copy your install's `q3key`
+file into `PAK_DIR`.
 
 ## Quick start
 
+You do **not** need to clone this repo or build anything: a prebuilt image is
+published to the GitHub Container Registry. This works the same on Windows,
+macOS and Linux, and takes about five minutes if you already own the game.
+
+**1. Install Docker.** On Windows or macOS, install
+[Docker Desktop](https://www.docker.com/products/docker-desktop/) and start
+it. On Linux, install Docker Engine with the Compose plugin. Check that
+`docker compose version` prints a version.
+
+**2. Make a folder and put your game files in it.** CloudyQuake never ships
+the game itself, so you need your own copy (the GOG, Steam or retail install
+will do). For Quake, make a folder called `cloudyquake` with a `paks/id1/`
+folder inside it, and copy your `pak0.pak` (and `pak1.pak`, for the full game)
+into that:
+
 ```
-git clone <this repo's URL>
-cd cloudyquake
-cp .env.example .env
-$EDITOR .env   # set NET_ICE_BROKER (or WS_URL) at minimum, and PASSWORD for a real deployment
-mkdir -p paks/id1 && cp /path/to/your/pak0.pak /path/to/your/pak1.pak paks/id1/   # see "Getting paks" below - data1/ instead of id1/ for Hexen II
-docker compose up -d --build
+cloudyquake/
+  docker-compose.yml     <- you create this in step 3
+  paks/
+    id1/
+      pak0.pak
+      pak1.pak
 ```
 
-Then open `http://<host>:27501` (or whatever `WEB_HTTP_PORT` you set), log in
-with any username and the shared password, and play - the username you type
-becomes your in-game player name. For anyone other than yourself on a real
-network, continue to [Deploying](#deploying) first: you need TLS.
+The file names must be lowercase on Linux. For other games see
+[Getting paks](#getting-paks) and the table after the example below.
+
+**3. Create `docker-compose.yml`** in the `cloudyquake` folder with the text
+below. This is the "one with everything" example: every setting is listed
+with a comment, set up for WebRTC, the recommended way to play. Replace
+`example.com` with your own domain (the names are explained in
+[Hostnames](#hostnames)), and change `PASSWORD`.
+
+```yaml
+services:
+  cloudyquake:
+    image: ghcr.io/benmclean/cloudyquake:latest
+    container_name: cloudyquake
+    restart: unless-stopped
+    environment:
+      # --- Who the container runs as. 1000/1000 is right for Docker Desktop.
+      # On Linux, set these to the owner of your paks folder (run `id`).
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+
+      # --- Login. Everyone uses this one password. Any username works, and
+      # the username they type becomes their in-game name. Leave PASSWORD
+      # empty and set USE_LOGIN_NAME to "false" for no login at all.
+      PASSWORD: changeme
+      USE_LOGIN_NAME: "true"
+
+      # --- How browsers connect to the game server. Pick ONE.
+      #
+      # Option A (used here, recommended): WebRTC. Game traffic travels over
+      # UDP, so a lost packet only costs that one packet. NET_ICE_BROKER is
+      # the public address of the broker that introduces browsers to the
+      # server (through your TLS reverse proxy). Setting it turns WebRTC on.
+      NET_ICE_BROKER: wss://quakebroker.example.com/
+      # The server's own hostname. Must resolve to this machine's UDP port
+      # 27500. It is only used to build the command shown to people who play
+      # with a native Quake client instead of the browser.
+      SV_HOST: quakeserver.example.com
+      # Option B: WebSocket only, which works on any network but runs over
+      # TCP. To use it, leave NET_ICE_BROKER empty ("") and set:
+      #   WS_URL: wss://quakeserver.example.com
+      WS_URL: ""
+      # Advanced WebRTC settings. The defaults are fine.
+      NET_ICE_NAME: /cloudyquake
+      FTEMASTER_PORT: "27950"
+      FTEMASTER_HOST: ""
+
+      # --- Which game to run. "qw" (Quake, the default), "quake2" or
+      # "quake3". BASE_GAMEDIR is the folder inside ./paks that holds the
+      # base game: id1 for Quake, baseq2 for Quake II, baseq3 for Quake III.
+      GAME: qw
+      BASE_GAMEDIR: id1
+      # Extra folders in ./paks to stack on top: mission packs, mods, map
+      # packs. Space-separated, e.g. "hipnotic" or "rogue xatrix".
+      GAMEDIRS: ""
+
+      # --- Game server settings, passed straight to the Quake server. This
+      # example hosts a 16-player deathmatch on the map dm3. The
+      # net_ice_servers part names a STUN server, which WebRTC needs so both
+      # sides can learn their public address. It does nothing in WebSocket
+      # mode, so it is safe to leave in.
+      SERVER_ARGS: "+set hostname CloudyQuake +set deathmatch 1 -dedicated 16 +set sv_public 0 +set net_ice_servers stun:stun.l.google.com:19302 +map dm3"
+      # Extra options for each player's browser. The STUN server must match
+      # the one in SERVER_ARGS. Add more, e.g. "+set scr_conscale 4" for a
+      # bigger on-screen display.
+      CLIENT_ARGS: "+set net_ice_servers stun:stun.l.google.com:19302"
+
+      # --- Ports inside the container. If you change these, change the
+      # matching numbers in "ports" below too.
+      SV_PORT: "27500"
+      SV_PORT_TCP: "27500"
+    ports:
+      - "27501:8080"        # the web page: http://localhost:27501
+      - "27500:27500/tcp"   # game server, WebSocket
+      - "27500:27500/udp"   # game server, WebRTC and native Quake clients
+      - "27950:27950/tcp"   # WebRTC broker (only used with NET_ICE_BROKER)
+      - "27950:27950/udp"
+    volumes:
+      - ./config:/config
+      - ./paks:/paks:ro
+```
+
+**4. Start it.** In a terminal, inside the `cloudyquake` folder:
+
+```
+docker compose up -d
+```
+
+The first run downloads the image, which takes a minute or two.
+
+**5. Play.** Open your site's address (`https://quake.example.com` once the
+setup below is done) in your browser, log in with any username and the
+password from the file (`changeme` above), and you are in. The first load
+downloads the game files to your browser, so it takes a while for Quake II and
+Quake III.
+
+For this to work from the internet you also need three things outside this
+file, all covered in [Deploying](#deploying): DNS names for the three
+hostnames in the example, a TLS reverse proxy in front of the web page and the
+broker (browsers refuse to talk to plain `ws://` from an `https://` page), and
+UDP port `27500` forwarded from your router to this machine.
+
+To try it on your own computer first, with no domain or proxy, set
+`NET_ICE_BROKER: ws://localhost:27950/` and open <http://localhost:27501>. See
+[Testing WebRTC locally in Docker Desktop](#testing-webrtc-locally-in-docker-desktop)
+for the one browser setting that needs.
+
+Everyday commands, run in the same folder:
+
+```
+docker compose logs -f           # watch the server log (Ctrl+C to stop watching)
+docker compose down              # stop and remove the container
+docker compose pull              # fetch a newer image...
+docker compose up -d             # ...then restart on it
+```
+
+**Other games.** Change `GAME`, `BASE_GAMEDIR` and the map in `SERVER_ARGS`,
+put the matching game files in that folder under `paks/`, then run
+`docker compose up -d` again (no rebuild is needed):
+
+| Game | `GAME` | `BASE_GAMEDIR` | Game files go in | Example map in `SERVER_ARGS` |
+|---|---|---|---|---|
+| Quake | `qw` | `id1` | `paks/id1/` (`pak0.pak`, `pak1.pak`) | `+map dm3` |
+| Quake II | `quake2` | `baseq2` | `paks/baseq2/` (`pak0.pak`, ...) | `+map q2dm1` |
+| Quake III Arena | `quake3` | `baseq3` | `paks/baseq3/` (`pak0.pk3`, ...) | `+map q3dm1` |
+
+Quake III support is **experimental**: the match starts and plays, but in
+testing the browser lost its connection after one to two minutes, over both
+WebRTC and WebSocket.
+
+**Building it yourself instead** (to change the code): clone this repo, copy
+`.env.example` to `.env`, edit it, and run `docker compose up -d --build`.
+The `docker-compose.yml` in the repo does exactly that.
 
 ### Configuration
 
@@ -231,7 +385,7 @@ if you've set `BASE_GAMEDIR=data1` for Hexen II, or `baseq2/pak0.pak` for
 `GAME=quake2`/`BASE_GAMEDIR=baseq2` (see
 [Supported games](#supported-games)). **`fteqw-server` loads this data
 itself** - see
-[Why the pak volume is mounted into both containers](#why-the-pak-volume-is-mounted-into-both-containers) -
+[Why fteqw-server needs your paks too](#why-fteqw-server-needs-your-paks-too) -
 so it needs to be present before the server can start a map.
 
 `PAK_DIR` is a plain docker volume laid out the same way a real install of
@@ -327,13 +481,11 @@ web and native clients. Reach for a dedicated `GAMEDIRS` entry instead when
 a map pack ships its own textures/models/sounds bundled as a pak, or you
 specifically want it toggleable independently of `id1/`.
 
-`PAK_DIR` is mounted **read-only** into both containers - neither can write
-to it. On a real Linux host, `nginx` also needs to actually be able to
-*read* whatever's in that directory: it runs as its own built-in `nginx`
-user (uid/gid 101) by default, which won't be able to read a directory owned
-by, say, a dedicated media/homelab user on your system. If you hit a
-permission error here, set `PUID`/`PGID` in `.env` to match that directory's
-actual owner - see `.env.example`.
+`PAK_DIR` is mounted **read-only** at `/paks` - nothing in the container can
+write to it. The services run as `PUID`/`PGID` (default `1000`/`1000`, as in
+other linuxserver.io images), which must be able to *read* whatever's in that
+directory. If you hit a permission error here, set `PUID`/`PGID` in `.env` to
+match that directory's actual owner - see `.env.example`.
 
 ## Connecting
 
@@ -433,9 +585,9 @@ CLIENT_ARGS=+set net_ice_servers stun:stun.l.google.com:19302
 
 - `NET_ICE_BROKER` - the public URL browsers use to reach the broker
   (through NPM, on `443`). **Setting it is what switches the browser from
-  WebSocket to WebRTC.** `fteqw-server` itself always talks to the bundled
-  `ftemaster` directly over the container network, so there's no matching
-  setting for that side.
+  WebSocket to WebRTC.** `fteqw-server` itself always talks to the `ftemaster`
+  running in the same container, so there's no matching setting for that
+  side (`FTEMASTER_HOST` overrides the address it uses, if you need to).
 - `NET_ICE_NAME` - optional, default `/cloudyquake`. The name `fteqw-server`
   registers with the broker; clients then `connect /cloudyquake`. Only
   change it if you run several servers on one broker. This is fteqw's
@@ -447,15 +599,15 @@ CLIENT_ARGS=+set net_ice_servers stun:stun.l.google.com:19302
 - `net_ice_servers` supplies a real STUN server to both sides. Normally
   fteqw uses the broker itself as STUN, derived from the broker URL's host and
   port - but behind NPM that lands on a port nothing answers UDP on, and the
-  server (which reaches `ftemaster` over Docker's private network) would learn
-  a private address instead of your public one. Any public STUN server works;
+  server (which reaches `ftemaster` over the container's own address) would
+  learn a private address instead of your public one. Any public STUN server works;
   use your own if you'd rather not depend on Google's.
 
-All of these are read once and passed to `fteqw-server`, `ftemaster`, *and*
+All of these are read once and used by `fteqw-server`, `ftemaster`, *and*
 `nginx` (for the browser client) - see `docker-compose.yml`.
 
 **Check it.** Add `+set net_ice_debug 2` to `SERVER_ARGS`/`CLIENT_ARGS`, load
-the site, and look at `docker compose logs fteqw-server`: you should see
+the site, and look at `docker compose logs cloudyquake`: you should see
 `Publicly listening on /myserver`, the browser's candidates, your public IP as
 the server's `Public address`, and finally `ice state connected`. If it stays
 on "Waiting for broker connection" the broker Proxy Host (or its Websockets
@@ -479,7 +631,7 @@ WS_URL=wss://quakeserver.example.com
 ```
 
 You then don't need the `quakebroker` hostname, its Proxy Host, or the broker
-port (the `ftemaster` service still starts but sits idle). The UDP `27500`
+port (`ftemaster` isn't started at all). The UDP `27500`
 forward is only needed for native clients.
 
 ### Testing WebRTC locally in Docker Desktop
@@ -494,7 +646,7 @@ Works, with a local-only wrinkle or two:
   (real deployments don't need this - browsers' public addresses come from
   STUN).
 - `+set net_ice_debug 2` in `SERVER_ARGS`/`CLIENT_ARGS` shows every
-  candidate and connectivity check in `docker compose logs fteqw-server`
+  candidate and connectivity check in `docker compose logs cloudyquake`
   and the browser console.
 
 ## Troubleshooting
@@ -504,14 +656,14 @@ Works, with a local-only wrinkle or two:
   at the login prompt - `nginx/auth.js` hands the same secret to the
   already-authenticated browser via `/config.json` for it to send as
   `+password`, so a mismatch here usually means stale `.env` values from
-  before a `docker compose up` that didn't rebuild.
+  before a `docker compose up` that didn't recreate the container.
 - **Connection fails only through the reverse proxy, works fine hitting the
   container's port directly**: almost always the "Websockets Support" toggle
   in nginx-proxy-manager (or the equivalent `proxy_set_header
   Upgrade`/`Connection` directives in a hand-written nginx config) on the
   broker or game-server host - see [Reverse proxy](#reverse-proxy-nginx-proxy-manager).
 - **WebRTC connect fails/times out**: check, in order:
-  1. `docker compose logs fteqw-server` should show `Publicly listening on
+  1. `docker compose logs cloudyquake` should show `Publicly listening on
      /<name>`. If it doesn't, the server never registered with the broker
      (see the `tcp://`/trailing-slash note above).
   2. Set `net_ice_debug 2` and look at the candidates the server logs. If
@@ -522,29 +674,28 @@ Works, with a local-only wrinkle or two:
      `fteqw-server`, and both sides need a reachable STUN server - see
      [Configuring WebRTC](#configuring-webrtc-recommended).
 
-## Why the pak volume is mounted into both containers
+## Why fteqw-server needs your paks too
 
 QuakeWorld is a genuine client-server model: the server is authoritative and
 actually runs the game simulation, so `fteqw-server` needs real access to the
 map/model/sound data in your paks to do that - not just `nginx`, which only
 needs them to hand out to browsers.
 
-On the `fteqw-server` side specifically, `PAK_DIR` isn't bind-mounted
-straight onto its basedir (`/fte`) - that basedir also holds a `qw/` folder
-baked into the image at build time (fteqw's own compiled QuakeWorld
-gamecode, see [Credits / license](#credits--license)), and a bind mount
-would hide that entirely rather than merge with it. Instead it's mounted at
-`/fte-data`, and `docker-entrypoint.sh` symlinks each gamedir subfolder it
-finds there into `/fte/` at container start - so a `paks/qw/` of your own
-(e.g. copied from a full retail install) still takes priority over the
-built-in one, instead of silently failing to appear at all.
+`/paks` isn't used directly as fteqw's basedir (`/fte`) - that basedir also
+holds a `qw/` folder baked into the image at build time (fteqw's own compiled
+QuakeWorld gamecode, see [Credits / license](#credits--license)), and a bind
+mount would hide that entirely rather than merge with it. Instead
+`init-cloudyquake-config` symlinks each gamedir subfolder it finds in `/paks`
+into `/fte/` at container start - so a `paks/qw/` of your own (e.g. copied
+from a full retail install) still takes priority over the built-in one,
+instead of silently failing to appear at all.
 
 ## Credits / license
 
 - [`fte-team/fteqw`](https://github.com/fte-team/fteqw) - the QuakeWorld
   engine (with an Emscripten/WebGL web port and native WebSocket support
   built in) this is built on, fetched at build time from a pinned tag (see
-  `FTEQW_REF` in `nginx/Dockerfile` and `fteqw-server/Dockerfile`) rather
+  `FTEQW_REF` in the `Dockerfile`) rather
   than vendored, since it's used entirely unmodified here.
 - The dedicated server's gamecode is compiled from fteqw's own
   `quakec/basemod` - see its `basemod.txt` for license terms. The actual
@@ -553,5 +704,5 @@ built-in one, instead of silently failing to appear at all.
 
 ## Other Projects
 
-- [CloudyDoom](https://github.com/BenMcLean/cloudydoom) - the same idea for
+- [CloudyDoom](https://github.com/BenMcLean/CloudyDoom) - the same idea for
   Doom: browser play against your own self-hosted server.

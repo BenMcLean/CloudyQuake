@@ -1,0 +1,63 @@
+#!/usr/bin/with-contenv bash
+# The dedicated server, ported from the old fteqw-server/docker-entrypoint.sh.
+# See .env.example for what each variable does.
+BASEDIR=/fte
+SV_PORT="${SV_PORT:-27500}"
+SV_PORT_TCP="${SV_PORT_TCP:-27500}"
+PASSWORD="${PASSWORD:-}"
+
+# GAME picks the engine-mode flag; it must match the GAME the image was
+# built with (see Dockerfile's ARG GAME).
+GAME="${GAME:-qw}"
+case "$GAME" in
+    qw)     set -- -game qw ;;
+    quake2) set -- -quake2 ;;
+    quake3) set -- -quake3 ;;
+    *)
+        echo "WARNING: unknown GAME '$GAME' - falling back to qw" >&2
+        set -- -game qw
+        ;;
+esac
+
+# GAMEDIRS stack on top, in order. init-cloudyquake-config already
+# symlinked whichever of them exist.
+for gd in ${GAMEDIRS:-}; do
+    gd=$(printf '%s' "$gd" | tr '[:upper:]' '[:lower:]')
+    [ -e "$BASEDIR/$gd" ] && set -- "$@" -game "$gd"
+done
+
+# WebRTC: the bundled ftemaster runs in this same container. net_ice_broker
+# MUST be set before sv_port_rtc (setting that opens the broker connection
+# immediately), and a native server only understands tcp:// or tls:// broker
+# URLs, with no trailing slash.
+#
+# The broker is reached via the container's own address rather than
+# localhost: the broker doubles as the STUN server, and STUN over loopback
+# would report this server's public address as 127.0.0.1. Set FTEMASTER_HOST
+# to override (e.g. to a hostname that hairpins through your router).
+if [ -n "${NET_ICE_BROKER:-}" ]; then
+    NET_ICE_NAME="${NET_ICE_NAME:-/cloudyquake}"
+    FTEMASTER_PORT="${FTEMASTER_PORT:-27950}"
+    FTEMASTER_HOST="${FTEMASTER_HOST:-$(hostname -i | awk '{print $1}')}"
+    FTEMASTER_HOST="${FTEMASTER_HOST:-127.0.0.1}"
+
+    # s6 has no readiness notification for ftemaster here, and the server
+    # silently never retries a failed broker connection.
+    for _ in $(seq 1 60); do
+        (exec 3<>"/dev/tcp/$FTEMASTER_HOST/$FTEMASTER_PORT") 2>/dev/null && break
+        sleep 0.5
+    done
+
+    set -- "$@" +set net_ice_broker "tcp://$FTEMASTER_HOST:$FTEMASTER_PORT"
+    set -- "$@" +set sv_port_rtc "$NET_ICE_NAME"
+fi
+
+# Forced flags run before SERVER_ARGS so that SERVER_ARGS's own +map/+set
+# commands execute afterward and aren't pre-empted.
+set -f
+set -- "$@" +set sv_port "$SV_PORT" +set sv_port_tcp "$SV_PORT_TCP" +set password "$PASSWORD" $SERVER_ARGS
+set +f
+
+export HOME=/config/fte
+cd /config/fte
+exec s6-setuidgid abc stdbuf -oL -eL /usr/local/bin/fteqw-server -basedir "$BASEDIR" "$@"
