@@ -5,8 +5,27 @@
 # nginx/auth.js. Runs as root, before any svc-* starts.
 set -eu
 
+# PASSWORD_FILE: optional alternative to putting PASSWORD in the compose
+# file, e.g. a Docker secret at /run/secrets/cloudyquake_password. A plain
+# PASSWORD always wins if both are set. The value is also written into
+# s6's container environment so the with-contenv services that start after
+# this one (nginx, fteqw-server) see it as PASSWORD too.
+if [ -z "${PASSWORD:-}" ] && [ -n "${PASSWORD_FILE:-}" ]; then
+    if [ ! -r "$PASSWORD_FILE" ]; then
+        echo "ERROR: PASSWORD_FILE '$PASSWORD_FILE' is not a readable file" >&2
+        exit 1
+    fi
+    PASSWORD=$(cat "$PASSWORD_FILE")
+    export PASSWORD
+    printf '%s' "$PASSWORD" > /run/s6/container_environment/PASSWORD
+fi
+
 BASEDIR=/fte
 DATA_DIR=/paks
+
+if [ "${PASSWORD:-}" = "changeme" ]; then
+    echo "WARNING: PASSWORD is still the example value 'changeme' - anyone who has read the README can log in. Set your own." >&2
+fi
 
 WS_URL="${WS_URL:-}"
 NET_ICE_NAME="${NET_ICE_NAME:-/cloudyquake}"

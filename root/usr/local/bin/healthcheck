@@ -1,0 +1,38 @@
+#!/bin/bash
+# Docker HEALTHCHECK: healthy only if every service in the container is up and
+# actually answering, not just nginx. Prints the reason to stderr when not.
+# Runs with the container's own environment, so it sees the same variables
+# (SV_PORT, NET_ICE_BROKER, ...) the services were started with.
+fail() { echo "unhealthy: $*" >&2; exit 1; }
+
+# s6 supervises every service; "false" means down or restarting. The service
+# directories live in one of two places depending on how s6-overlay is set up.
+svc_up() {
+    local d
+    for d in /run/service /run/s6-rc/scandir; do
+        [ -d "$d/$1" ] && [ "$(/command/s6-svstat -o up "$d/$1" 2>/dev/null)" = "true" ] && return 0
+    done
+    return 1
+}
+
+curl -fsS -o /dev/null --max-time 4 http://127.0.0.1:8080/favicon.ico \
+    || fail "nginx is not answering on :8080"
+
+svc_up svc-fteqw-server || fail "fteqw-server is not running"
+
+# Ask the server for its status over UDP, the way a server browser would. Any
+# reply means its main loop is alive. A bare bound port would not prove that.
+SV_PORT="${SV_PORT:-27500}"
+exec 3<>"/dev/udp/127.0.0.1/$SV_PORT" || fail "cannot open UDP socket"
+printf '\xff\xff\xff\xffstatus\n' >&3
+[ "$(timeout 3 head -c 4 <&3 | od -An -tx1 | tr -d ' \n')" = "ffffffff" ] \
+    || fail "fteqw-server did not answer a status query on UDP $SV_PORT"
+exec 3>&-
+
+# ftemaster only runs when WebRTC is on (see svc-ftemaster/run).
+if [ -n "${NET_ICE_BROKER:-}" ]; then
+    svc_up svc-ftemaster || fail "ftemaster is not running"
+    (exec 3<>"/dev/tcp/127.0.0.1/${FTEMASTER_PORT:-27950}") 2>/dev/null \
+        || fail "ftemaster is not accepting connections"
+fi
+exit 0

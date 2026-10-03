@@ -193,7 +193,7 @@ COPY --from=gamecode-quake2 /out/ /
 # s6 service definitions, nginx.conf, auth.js, the site and config template.
 COPY root/ /
 
-RUN chmod +x /usr/local/bin/fteqw-server /usr/local/bin/ftemaster \
+RUN chmod +x /usr/local/bin/fteqw-server /usr/local/bin/ftemaster /usr/local/bin/healthcheck \
     && find /etc/s6-overlay/s6-rc.d -type f -name run -exec chmod +x {} +
 
 # Make a failed init (e.g. neither NET_ICE_BROKER nor WS_URL set) stop the
@@ -203,6 +203,10 @@ ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
 # 8080: web client. 27500: fteqw-server (udp = native/WebRTC, tcp =
 # WebSocket). 27950: ftemaster (tcp = signaling, udp = STUN).
 EXPOSE 8080 27500/udp 27500/tcp 27950/tcp 27950/udp
+
+# Healthy only when every service in the container is up and answering -
+# see /usr/local/bin/healthcheck.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["/usr/local/bin/healthcheck"]
 
 # /config: fteqw's own config. /paks: your retail game data (read-only
 # is fine - nothing writes there).

@@ -235,6 +235,9 @@ services:
       PUID: "1000"
       PGID: "1000"
       TZ: Etc/UTC
+      # "normal" logs only failed web requests; "verbose" logs all of them.
+      # The game server's own logging is set through SERVER_ARGS instead.
+      LOG_LEVEL: normal
 
       # --- Login. Everyone uses this one password. Any username works, and
       # the username they type becomes their in-game name. Leave PASSWORD
@@ -342,8 +345,20 @@ Logs: everything goes to the container's output, nothing is written to log
 files. The `logging:` block in the example above caps them at about 30 MB. If
 you start the container with `docker run` instead, add
 `--log-opt max-size=10m --log-opt max-file=3`. Only failed web requests are
-logged. `+set net_ice_debug 2` in `SERVER_ARGS` is very noisy, so use it only
+logged unless you set `LOG_LEVEL: verbose`. `+set net_ice_debug 2` in `SERVER_ARGS` is very noisy, so use it only
 while debugging WebRTC.
+
+**Login guessing is throttled.** Failed logins are limited to 10 a minute per
+client address (then HTTP 429). Behind a reverse proxy all players share the
+proxy's address unless you set up nginx's `real_ip` module, so the limit is
+shared between them. The container also has a Docker health check, and logs a
+warning at startup if `PASSWORD` is still `changeme`.
+
+**Keeping the password out of the compose file.** Instead of `PASSWORD`, you
+can set `PASSWORD_FILE` to the path of a file inside the container that holds
+it, for example a Docker secret: `PASSWORD_FILE: /run/secrets/cloudyquake_password`
+(declare the secret in your compose file's `secrets:` section and list it under
+the service). `PASSWORD` still works as before and wins if both are set.
 
 **Other games.** Change `GAME`, `BASE_GAMEDIR` and the map in `SERVER_ARGS`,
 put the matching game files in that folder under `paks/`, then run

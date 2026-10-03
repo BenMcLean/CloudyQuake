@@ -13,10 +13,12 @@ services:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       TZ: ${TZ:-Etc/UTC}
+      LOG_LEVEL: ${LOG_LEVEL:-normal}
       GAME: ${GAME:-qw}
       WS_URL: ${WS_URL:-}
       SV_HOST: ${SV_HOST:-}
       PASSWORD: ${PASSWORD:-}
+      PASSWORD_FILE: ${PASSWORD_FILE:-}
       USE_LOGIN_NAME: ${USE_LOGIN_NAME:-true}
       BASE_GAMEDIR: ${BASE_GAMEDIR:-id1}
       GAMEDIRS: ${GAMEDIRS:-}
