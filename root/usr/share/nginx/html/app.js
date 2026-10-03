@@ -90,6 +90,27 @@ function loadEngine() {
     document.head.appendChild(s);
 }
 
+// Registers sw.js, which keeps the game files in Cache Storage so they're
+// only downloaded once per browser (see sw.js). Resolves once the worker is
+// controlling this page, because the engine's own downloads have to go
+// through it. Never rejects: without service workers (plain http on a
+// non-localhost address, private browsing in some browsers) the game still
+// works, it just downloads everything each time.
+function enableGameFileCache() {
+    if (!("serviceWorker" in navigator)) return Promise.resolve();
+    return navigator.serviceWorker
+        .register("sw.js")
+        .then(() => navigator.serviceWorker.ready)
+        .then(() => {
+            if (navigator.serviceWorker.controller) return;
+            return new Promise((resolve) => {
+                navigator.serviceWorker.addEventListener("controllerchange", resolve, { once: true });
+                setTimeout(resolve, 3000);
+            });
+        })
+        .catch((err) => console.warn("Game file caching unavailable:", err));
+}
+
 fetch("config.json", { cache: "no-store" })
     .then((r) => {
         if (!r.ok) throw new Error(`config.json: HTTP ${r.status}`);
@@ -165,7 +186,7 @@ fetch("config.json", { cache: "no-store" })
             .concat(["+connect", connectTarget]);
 
         setStatusText("Downloading game data...");
-        loadEngine();
+        return enableGameFileCache().then(loadEngine);
     })
     .catch((err) => {
         console.error(err);

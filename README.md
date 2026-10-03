@@ -218,8 +218,9 @@ The file names must be lowercase on Linux. For other games see
 [Getting paks](#getting-paks) and the table after the example below.
 
 **3. Create `docker-compose.yml`** in the `cloudyquake` folder with the text
-below. This is the "one with everything" example: every setting is listed
-with a comment, set up for WebRTC, the recommended way to play. Replace
+below. This example is set up for WebRTC, the recommended way to play, and
+lists only the settings most people need; the commented-out ones at the bottom
+are optional and shown with their defaults. Replace
 `example.com` with your own domain (the names are explained in
 [Hostnames](#hostnames)), and change `PASSWORD`.
 
@@ -230,65 +231,61 @@ services:
     container_name: cloudyquake
     restart: unless-stopped
     environment:
-      # --- Who the container runs as. 1000/1000 is right for Docker Desktop.
-      # On Linux, set these to the owner of your paks folder (run `id`).
-      PUID: "1000"
-      PGID: "1000"
-      TZ: Etc/UTC
-      # "normal" logs only failed web requests; "verbose" logs all of them.
-      # The game server's own logging is set through SERVER_ARGS instead.
-      LOG_LEVEL: normal
-
       # --- Login. Everyone uses this one password. Any username works, and
-      # the username they type becomes their in-game name. Leave PASSWORD
-      # empty and set USE_LOGIN_NAME to "false" for no login at all.
+      # the username they type becomes their in-game name.
       PASSWORD: changeme
-      USE_LOGIN_NAME: "true"
 
-      # --- How browsers connect to the game server. Pick ONE.
-      #
-      # Option A (used here, recommended): WebRTC. Game traffic travels over
-      # UDP, so a lost packet only costs that one packet. NET_ICE_BROKER is
-      # the public address of the broker that introduces browsers to the
-      # server (through your TLS reverse proxy). Setting it turns WebRTC on.
+      # --- How browsers connect to the game server (WebRTC, recommended).
+      # Game traffic travels over UDP, so a lost packet only costs that one
+      # packet. NET_ICE_BROKER is the public address of the broker that
+      # introduces browsers to the server (through your TLS reverse proxy).
       NET_ICE_BROKER: wss://quakebroker.example.com/
       # The server's own hostname. Must resolve to this machine's UDP port
       # 27500. It is only used to build the command shown to people who play
       # with a native Quake client instead of the browser.
       SV_HOST: quakeserver.example.com
-      # Option B: WebSocket only, which works on any network but runs over
-      # TCP. To use it, leave NET_ICE_BROKER empty ("") and set:
-      #   WS_URL: wss://quakeserver.example.com
-      WS_URL: ""
-      # Advanced WebRTC settings. The defaults are fine.
-      NET_ICE_NAME: /cloudyquake
-      FTEMASTER_PORT: "27950"
-      FTEMASTER_HOST: ""
-
-      # --- Which game to run. "qw" (Quake, the default), "quake2" or
-      # "quake3". BASE_GAMEDIR is the folder inside ./paks that holds the
-      # base game: id1 for Quake, baseq2 for Quake II, baseq3 for Quake III.
-      GAME: qw
-      BASE_GAMEDIR: id1
-      # Extra folders in ./paks to stack on top: mission packs, mods, map
-      # packs. Space-separated, e.g. "hipnotic" or "rogue xatrix".
-      GAMEDIRS: ""
 
       # --- Game server settings, passed straight to the Quake server. This
       # example hosts a 16-player deathmatch on the map dm3. The
       # net_ice_servers part names a STUN server, which WebRTC needs so both
-      # sides can learn their public address. It does nothing in WebSocket
-      # mode, so it is safe to leave in.
-      SERVER_ARGS: "+set hostname CloudyQuake +set deathmatch 1 -dedicated 16 +set sv_public 0 +set net_ice_servers stun:stun.l.google.com:19302 +map dm3"
+      # sides can learn their public address. The server is private (not in
+      # public server lists) by default; add "+set sv_public 1" to list it.
+      SERVER_ARGS: "+set hostname CloudyQuake +set deathmatch 1 -dedicated 16 +set net_ice_servers stun:stun.l.google.com:19302 +map dm3"
       # Extra options for each player's browser. The STUN server must match
       # the one in SERVER_ARGS. Add more, e.g. "+set scr_conscale 4" for a
       # bigger on-screen display.
-      CLIENT_ARGS: "+set net_ice_servers stun:stun.l.google.com:19302"
+      CLIENT_ARGS: "+set scr_conscale 8 +set net_ice_servers stun:stun.l.google.com:19302"
 
-      # --- Ports inside the container. If you change these, change the
+      # --- Optional settings. Everything below is shown with its default
+      # value, so you only need to uncomment a line to change it.
+      #
+      # Who the container runs as. 1000/1000 is right for Docker Desktop.
+      # On Linux, set these to the owner of your paks folder (run `id`).
+      # PUID: "1000"
+      # PGID: "1000"
+      # TZ: Etc/UTC
+      # "normal" logs only failed web requests; "verbose" logs all of them.
+      # LOG_LEVEL: normal
+      # Set PASSWORD empty and this to "false" for no login at all.
+      # USE_LOGIN_NAME: "true"
+      # WebSocket instead of WebRTC (works on any network, but runs over
+      # TCP): leave NET_ICE_BROKER out and set this instead.
+      # WS_URL: wss://quakeserver.example.com
+      # Advanced WebRTC settings.
+      # NET_ICE_NAME: /cloudyquake
+      # FTEMASTER_PORT: "27950"
+      # FTEMASTER_HOST: ""
+      # Which game to run: "qw" (Quake), "quake2" or "quake3". BASE_GAMEDIR
+      # is the folder inside ./paks with the base game: id1, baseq2 or baseq3.
+      # GAME: qw
+      # BASE_GAMEDIR: id1
+      # Extra folders in ./paks to stack on top (mission packs, mods, map
+      # packs), space-separated, e.g. "hipnotic" or "rogue xatrix".
+      # GAMEDIRS: ""
+      # Ports inside the container. If you change these, change the
       # matching numbers in "ports" below too.
-      SV_PORT: "27500"
-      SV_PORT_TCP: "27500"
+      # SV_PORT: "27500"
+      # SV_PORT_TCP: "27500"
     ports:
       - "27501:8080"        # the web page: http://localhost:27501
       - "27500:27500/tcp"   # game server, WebSocket
@@ -319,7 +316,10 @@ The first run downloads the image, which takes a minute or two.
 setup below is done) in your browser, log in with any username and the
 password from the file (`changeme` above), and you are in. The first load
 downloads the game files to your browser, so it takes a while for Quake II and
-Quake III.
+Quake III. They are then kept in the browser's cache storage (through a small
+service worker, `sw.js`), so reloads and later visits skip the download. This
+needs HTTPS or `localhost`; over plain HTTP everything downloads each time.
+Clearing the site's data in the browser removes the cached files.
 
 For this to work from the internet you also need three things outside this
 file, all covered in [Deploying](#deploying): DNS names for the three
