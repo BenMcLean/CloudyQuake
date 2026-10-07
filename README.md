@@ -20,6 +20,10 @@ password-gated. The actual game content (`pak0.pak`, optionally `pak1.pak`,
 or any QuakeC mod's own paks) is a docker volume that you fill yourself - see
 [Getting paks](#getting-paks).
 
+## Why this exists
+
+[FTEQW](https://www.fteqw.org/) has had a WASM build for some time, but so far as I was able to find, nobody had bothered to containerize it before. That's all CloudyQuake is: FTEQW containerized. The name is the convention established by my previous project, [CloudyDoom](https://github.com/BenMcLean/CloudyDoom).
+
 ## How it works
 
 ```
