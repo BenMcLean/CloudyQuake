@@ -1,9 +1,9 @@
 name: Build and publish image
 
-# Publishes ghcr.io/benmclean/cloudyquake:
-#   - every push to master: a linux/amd64-only build, tagged "edge".
-#   - every tag matching v* (e.g. v2026-10-01): a release build for linux/amd64
-#     AND linux/arm64, tagged with the tag itself and "latest".
+# Publishes ghcr.io/benmclean/cloudyquake on every tag matching v*
+# (e.g. v2026-10-01): a release build for linux/amd64 AND linux/arm64, tagged
+# with the tag itself and "latest". Nothing is built on ordinary pushes. To
+# re-run a release, use "Run workflow" and pick the tag.
 #
 # Each architecture is built on a native runner (no QEMU - the fteqw/yquake2
 # compiles are slow enough already), then merged into one manifest list. The
@@ -13,7 +13,6 @@ name: Build and publish image
 
 on:
   push:
-    branches: [master]
     tags: ['v*']
   workflow_dispatch:
 
@@ -21,7 +20,6 @@ env:
   REGISTRY: ghcr.io
   # Must be lowercase (the GitHub owner is BenMcLean).
   IMAGE: ghcr.io/benmclean/cloudyquake
-  IS_RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
   wasm:
@@ -52,11 +50,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # arm64 only for release tags.
-        include: >-
-          ${{ fromJSON(startsWith(github.ref, 'refs/tags/v')
-          && '[{"platform":"linux/amd64","runner":"ubuntu-24.04"},{"platform":"linux/arm64","runner":"ubuntu-24.04-arm"}]'
-          || '[{"platform":"linux/amd64","runner":"ubuntu-24.04"}]') }}
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -124,16 +122,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # master: "edge". v* tag: the tag as written (v2026-10-01) plus "latest".
+      # The tag as written (v2026-10-01) plus "latest".
       - name: Tags
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=raw,value=edge,enable=${{ env.IS_RELEASE != 'true' }}
             type=ref,event=tag
-            type=raw,value=latest,enable=${{ env.IS_RELEASE == 'true' }}
+            type=raw,value=latest
 
       - name: Create manifest list and push
         working-directory: /tmp/digests

@@ -6,18 +6,9 @@ SV_PORT="${SV_PORT:-27500}"
 SV_PORT_TCP="${SV_PORT_TCP:-27500}"
 PASSWORD="${PASSWORD:-}"
 
-# GAME picks the engine-mode flag; it must match the GAME the image was
-# built with (see Dockerfile's ARG GAME).
-GAME="${GAME:-qw}"
-case "$GAME" in
-    qw)     set -- -game qw ;;
-    quake2) set -- -quake2 ;;
-    quake3) set -- -quake3 ;;
-    *)
-        echo "WARNING: unknown GAME '$GAME' - falling back to qw" >&2
-        set -- -game qw
-        ;;
-esac
+# Engine-mode switches (-game qw, -quake2, -hexen2, ...) come from
+# SERVER_ARGS, passed straight through. Nothing is added here.
+set --
 
 # GAMEDIRS stack on top, in order. init-cloudyquake-config already
 # symlinked whichever of them exist.

@@ -14,7 +14,6 @@ services:
       PGID: ${PGID:-1000}
       TZ: ${TZ:-Etc/UTC}
       LOG_LEVEL: ${LOG_LEVEL:-normal}
-      GAME: ${GAME:-qw}
       WS_URL: ${WS_URL:-}
       SV_HOST: ${SV_HOST:-}
       PASSWORD: ${PASSWORD:-}

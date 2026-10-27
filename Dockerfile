@@ -8,8 +8,8 @@
 # fetched at build time (see FTEQW_REF) rather than vendored.
 
 # One image serves every game: the gamecode for all of them is baked in, and
-# the container's GAME env var (see svc-fteqw-server/run and .env.example)
-# picks which one actually runs. Published for linux/amd64 and linux/arm64.
+# the engine-mode switch in SERVER_ARGS (see .env.example) picks which one
+# actually runs. Published for linux/amd64 and linux/arm64.
 
 # fteqw tags releases as dated snapshots rather than semver - pinned instead
 # of "master" so a rebuild doesn't silently pick up unreviewed upstream
@@ -183,8 +183,8 @@ COPY --from=sv-builder /src/engine/release/fteqw-server-bin /usr/local/bin/fteqw
 COPY --from=master-builder /src/engine/release/ftemaster-bin /usr/local/bin/ftemaster
 COPY --from=wasm /ftewebgl.js /ftewebgl.wasm /usr/share/nginx/html/
 
-# -basedir for fteqw-server. qw/ (baked-in gamecode, or libgame_*.so for
-# GAME=quake2) come from the gamecode stages; every other gamedir gets
+# -basedir for fteqw-server. qw/ (baked-in gamecode) and the
+# libgame_*.so Quake II gamecode libraries come from the gamecode stages; every other gamedir gets
 # symlinked in from /paks at container start by init-cloudyquake-config.
 RUN mkdir -p /fte /paks
 COPY --from=gamecode-qw /out/ /

@@ -143,7 +143,7 @@ fetch("config.json", { cache: "no-store" })
         // an unrecognised startup command through to a same-named cvar,
         // which turned out not to reliably apply before Quake II's own
         // connect handshake reads it (surfaced as new players landing as
-        // "unnamed" under GAME=quake2) - "+set" goes through the real,
+        // "unnamed" on Quake II) - "+set" goes through the real,
         // always-registered "set" command instead, sidestepping that
         // fallback entirely.
         const nameArgs = config.playerName ? ["+set", "name", config.playerName] : [];
