@@ -1,13 +1,13 @@
 # CloudyQuake
 
-Multiplayer games from the Quake series, playable straight in the browser and
-hosted on your own dedicated server. Supports Quake, Hexen II, Quake II and
-Quake III Arena.
+Multiplayer games from the *Quake* series, playable straight in the browser and
+hosted on your own dedicated server. Supports *Quake*, *Hexen II*, *Quake II* and
+*Quake III Arena*.
 For the people you invite to play: no client install, no router config, just a URL and a password.
 Everything here is open source and runs as a docker-compose stack.
 
-The "no setup" experience is only true for players - **you, running the
-server, still need to expose it to the internet**, same as hosting any other
+The "no setup" experience is only true for players - you, running the
+server, still need to expose it to the internet, same as hosting any other
 self-hosted service. [Deploying](#deploying) lists every hostname and port
 involved in one place.
 
@@ -27,30 +27,12 @@ or any QuakeC mod's own paks) is a docker volume that you fill yourself - see
 
 ## How it works
 
-```
- 1. Everyone loads the web client:
+A browser player first loads the web client from `nginx` over HTTPS. `nginx` sits behind HTTP Basic Auth and serves both the client and your pak files. After that, the browser connects to the game server (`fteqw-server`) over one of two transports. The admin picks which one with `NET_ICE_BROKER`.
 
-      Browser --HTTPS--> nginx        (Basic Auth; serves the client + paks)
+- **WebRTC** (recommended) is used when `NET_ICE_BROKER` is set. Game traffic travels over UDP, so a lost packet costs only that packet, which gives lower latency on lossy connections. Before the game starts, the browser and `fteqw-server` both talk to the broker (`ftemaster`), which relays the connection info they need to find each other. Once that handshake is done, game traffic flows directly between the browser and `fteqw-server`. It never passes through `ftemaster` or `nginx`.
+- **WebSocket** is used when `NET_ICE_BROKER` is blank. The browser connects straight to `fteqw-server` over a TCP WebSocket (`wss://`). It works on any network, including ones that block UDP, but a lost packet stalls everything behind it. No broker is involved.
 
- 2. Then the browser plays over ONE of these, chosen by the admin
-    (NET_ICE_BROKER set = A, blank = B):
-
-    A. WebRTC - UDP, lower latency under packet loss (recommended)
-
-      Browser --WSS--> ftemaster <--WSS-- fteqw-server
-                        (the broker only relays connection info;
-                         it never sees game traffic)
-
-      Browser <=======UDP, direct======> fteqw-server
-
-    B. WebSocket - TCP, works on any network (alternative)
-
-      Browser --WSS--> fteqw-server
-
- 3. Native fteqw clients skip all of the above:
-
-      Native client --UDP--> fteqw-server
-```
+Native fteqw clients don't use any of this. They have no browser, so they skip `nginx` and the broker and connect to `fteqw-server` directly over UDP.
 
 Everything runs in **one container**, built in the style of the
 [linuxserver.io](https://www.linuxserver.io/) images: an Ubuntu base with
@@ -90,7 +72,7 @@ install layout the game you're running actually uses. `SERVER_ARGS` and
 `BASE_GAMEDIR` need to agree, same as they would running fteqw natively
 outside Docker.
 
-### Quake (1996)
+### *Quake* (1996)
 
 **QuakeWorld** (`SERVER_ARGS=-game qw ...`, `BASE_GAMEDIR=id1`) - gamecode compiled from fteqw's
 own openly-licensed `quakec/basemod` into the image at
@@ -100,9 +82,9 @@ to source this gamecode from other than compiling it - everything else
 below instead comes entirely from your own pak volume, same as any
 `GAMEDIRS` entry.
 
-#### Hexen II (1997)
+#### *Hexen II* (1997)
 
-fteqw's own docs describe treating Hexen II as "a glorified mod" of the exact same
+fteqw's own docs describe treating *Hexen II* as "a glorified mod" of the exact same
 QuakeC VM and QuakeWorld-style netcode/protocol, just against a different
 base gamedir
 (`SERVER_ARGS=-hexen2`, `BASE_GAMEDIR=data1`) and a flag telling
@@ -118,12 +100,12 @@ file too - all get picked up automatically, nothing baked into the image. See
 `-hexen2` to `CLIENT_ARGS` too, so the browser client's own fteqw build
 runs in the same mode (see `.env.example`).
 
-### Quake II (1997)
+### *Quake II* (1997)
 
 The base game (`SERVER_ARGS=-quake2 ...`, `BASE_GAMEDIR=baseq2`) is supported via
 [Yamagi Quake II](https://github.com/yquake2/yquake2) (GPLv2, pinned to a
-fixed release tag in the `Dockerfile`): unlike Quake/Hexen
-II's QuakeC, Quake II's gamecode is a natively-compiled shared library
+fixed release tag in the `Dockerfile`): unlike *Quake*/*Hexen
+II*'s QuakeC, *Quake II*'s gamecode is a natively-compiled shared library
 that fteqw `dlopen()`s at runtime rather than
 bundling itself, so the image's build compiles one from yquake2's `src/game/` -
 just the gamecode, not its client/server/renderer, which this project has
@@ -131,11 +113,11 @@ no use for - and bakes it into the image the same general
 way `quakec/basemod` is baked in for QuakeWorld. `BASE_GAMEDIR=baseq2`
 matters here beyond the usual pak-volume convention: the baked gamecode
 library's own filename embeds that exact gamedir name, so it has to match.
-Unlike Hexen II's `-hexen2`, nothing needs adding to `CLIENT_ARGS` for
+Unlike *Hexen II*'s `-hexen2`, nothing needs adding to `CLIENT_ARGS` for
 this - the browser client (and any native client) negotiates the protocol
 with the server automatically during connect, confirmed by testing.
 
-Quake II ships player models/skins (`players/`) as **loose files**, not
+*Quake II* ships player models/skins (`players/`) as **loose files**, not
 packed into any pak, unlike Quake/Hexen II - copy that folder over
 as-is alongside the paks (see [Getting paks](#getting-paks)) or players
 will spawn with missing models. Don't bother copying
@@ -143,6 +125,7 @@ will spawn with missing models. Don't bother copying
 original Windows native gamecode DLL, irrelevant here since the image
 builds and bakes in its own Linux one.
 
+#### *Quake II* mods
 The following mission packs/mods are supported via `GAMEDIRS`, each a
 natively-compiled gamecode library baked in the same way and built from its
 own maintained open-source repo (same as `baseq2`'s above), not from
@@ -160,6 +143,7 @@ Use them the same way as any other `GAMEDIRS` entry (e.g.
 [Getting paks](#getting-paks)) - the gamecode itself needs no extra setup,
 it's already in the image.
 
+#### *Quake II* known issue
 **Known issue: player names don't stick.** A player's chosen name (from the
 login prompt, or a native client's own `name`) applies correctly for a
 moment at connect - the server log shows `<name> connected` - but gets
@@ -181,7 +165,7 @@ to dig into it yourself. Everything else about a match - joining,
 playing, chat, scores - works regardless; only the display name is
 affected.
 
-### Quake III Arena (1999)
+### *Quake III Arena* (1999)
 
 `SERVER_ARGS=-quake3 ...`, `BASE_GAMEDIR=baseq3`, with `baseq3/pak0.pk3` (and the other
 `pak*.pk3` files from a retail install) in your `PAK_DIR`. fteqw's Quake III
