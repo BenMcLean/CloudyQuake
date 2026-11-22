@@ -41,7 +41,7 @@ COPY --from=wasm-builder /src/engine/release/ftewebgl.js /src/engine/release/fte
 
 # --- fte-src: fteqw source with its bundled libs built, shared by the
 # native builder stages below so makelibs only runs once.
-FROM ubuntu:24.04 AS fte-src
+FROM ubuntu:26.04 AS fte-src
 ARG FTEQW_REF
 ARG TARGETARCH
 # fteqw's "linux64" target hard-codes "gcc -m64", which doesn't exist on
@@ -112,7 +112,7 @@ RUN mkdir -p /out/fte/qw \
 # unconditional and outside the gamedir itself (gamedirs are runtime
 # symlinks into /paks, which would hide anything baked in inside one).
 # Matching BASE_GAMEDIR/GAMEDIRS to those names is on you - see .env.example.
-FROM ubuntu:24.04 AS gamecode-quake2
+FROM ubuntu:26.04 AS gamecode-quake2
 ARG YQUAKE2_REF=QUAKE2_8_70
 # The official expansions are separate repos, each tagged <NAME>_<major>_<minor>.
 ARG ROGUE_REF=ROGUE_2_16
