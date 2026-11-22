@@ -25,7 +25,7 @@ ARG FTEQW_REF=2025-09-27
 # (`--target wasm`) and hands the result to every platform's image build as
 # a named context (`--build-context wasm=<dir>`), which replaces the `wasm`
 # stage below so this builder never runs on arm64.
-FROM --platform=linux/amd64 emscripten/emsdk:2.0.12 AS wasm-builder
+FROM --platform=linux/amd64 emscripten/emsdk:7.0.0 AS wasm-builder
 ARG FTEQW_REF
 RUN git clone --depth 1 --branch "$FTEQW_REF" https://github.com/fte-team/fteqw.git /src
 WORKDIR /src/engine
