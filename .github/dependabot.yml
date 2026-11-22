@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']
+
+  # Bumps the FROM base images in the Dockerfile. The ARG-pinned source refs
+  # (FTEQW_REF, YQUAKE2_REF, ...) aren't visible to Dependabot - check those
+  # by hand.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly

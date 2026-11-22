@@ -107,6 +107,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write      # sign the attestation (Sigstore OIDC)
+      attestations: write  # store the attestation
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -139,3 +141,20 @@ jobs:
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+
+      # Digest of the merged manifest list, which is what users pull.
+      - name: Get manifest digest
+        id: digest
+        run: |
+          digest="$(docker buildx imagetools inspect '${{ env.IMAGE }}:latest' \
+            --format '{{json .Manifest}}' | jq -r .digest)"
+          test -n "$digest"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      # Verify with: gh attestation verify oci://ghcr.io/benmclean/cloudyquake:latest --owner BenMcLean
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.digest.outputs.digest }}
+          push-to-registry: true
